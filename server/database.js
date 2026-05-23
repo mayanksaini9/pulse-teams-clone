@@ -1,87 +1,123 @@
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
 
-const DATA_DIR = path.join(__dirname, 'data');
+// Define Schemas
+const UserSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  email: { type: String, unique: true, required: true, lowercase: true },
+  name: { type: String, required: true },
+  password: { type: String, required: true },
+  avatarColor: { type: String, default: '#6366f1' },
+  avatarUrl: { type: String, default: '' },
+  status: { type: String, default: 'online' },
+  statusMsg: { type: String, default: '' },
+  phone: { type: String, default: '' },
+  jobTitle: { type: String, default: '' },
+  department: { type: String, default: '' },
+  verified: { type: Boolean, default: false },
+  verificationToken: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
 
-// Helper to ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+const TeamSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  name: { type: String, required: true },
+  passcode: { type: String, required: true },
+  creatorId: { type: String, required: true },
+  members: [{ type: String }], // User IDs (string matching User.id)
+  channels: [{
+    id: { type: String, required: true },
+    name: { type: String, required: true },
+    description: { type: String, default: '' }
+  }],
+  createdAt: { type: Date, default: Date.now }
+});
 
-// Helper to get filepath for a collection
-const getFilePath = (collection) => path.join(DATA_DIR, `${collection}.json`);
+const MessageSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  teamId: { type: String, required: true },
+  channelId: { type: String, required: true },
+  senderId: { type: String, required: true },
+  senderName: { type: String, required: true },
+  senderAvatarColor: { type: String, default: '#6366f1' },
+  senderAvatarUrl: { type: String, default: '' },
+  text: { type: String, default: '' },
+  type: { type: String, default: 'text' },
+  attachment: { type: mongoose.Schema.Types.Mixed },
+  isSystem: { type: Boolean, default: false },
+  timestamp: { type: Date, default: Date.now }
+});
 
-// Helper to read data safely
-const readData = (collection) => {
-  const filePath = getFilePath(collection);
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify([], null, 2));
-    return [];
-  }
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    return JSON.parse(content || '[]');
-  } catch (error) {
-    console.error(`Error reading ${collection}:`, error);
-    return [];
-  }
-};
+const User = mongoose.models.User || mongoose.model('User', UserSchema);
+const Team = mongoose.models.Team || mongoose.model('Team', TeamSchema);
+const Message = mongoose.models.Message || mongoose.model('Message', MessageSchema);
 
-// Helper to write data safely
-const writeData = (collection, data) => {
-  const filePath = getFilePath(collection);
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    return true;
-  } catch (error) {
-    console.error(`Error writing ${collection}:`, error);
-    return false;
-  }
-};
-
-// User Operations
 const database = {
-  getUsers: () => readData('users'),
+  getUsers: async () => {
+    return await User.find({}).lean();
+  },
   
-  findUserByEmail: (email) => {
-    const users = readData('users');
-    return users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  findUserByEmail: async (email) => {
+    if (!email) return null;
+    return await User.findOne({ email: email.toLowerCase() }).lean();
   },
 
-  findUserById: (id) => {
-    const users = readData('users');
-    return users.find(u => u.id === id);
+  findUserById: async (id) => {
+    return await User.findOne({ id }).lean();
   },
 
-  createUser: (userData) => {
-    const users = readData('users');
-    const newUser = {
+  createUser: async (userData) => {
+    // Generate a 6-digit email verification token
+    const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
+    const newUser = new User({
       id: Math.random().toString(36).substr(2, 9),
       ...userData,
-      createdAt: new Date().toISOString()
-    };
-    users.push(newUser);
-    writeData('users', users);
-    return newUser;
+      verified: false,
+      verificationToken
+    });
+    
+    await newUser.save();
+    
+    // Log the verification token to the server console for easy retrieval
+    console.log(`\n======================================================`);
+    console.log(`[EMAIL VERIFICATION]`);
+    console.log(`Email: ${userData.email}`);
+    console.log(`Verification Code: ${verificationToken}`);
+    console.log(`======================================================\n`);
+    
+    return newUser.toObject();
   },
 
-  // Team Operations
-  getTeams: () => readData('teams'),
-  
-  findTeamById: (id) => {
-    const teams = readData('teams');
-    return teams.find(t => t.id === id);
+  verifyUserEmail: async (email, token) => {
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      throw new Error('User not found.');
+    }
+    if (user.verificationToken !== token) {
+      throw new Error('Invalid verification code.');
+    }
+    
+    user.verified = true;
+    user.verificationToken = ''; // Clear token after verification
+    await user.save();
+    return user.toObject();
   },
 
-  findTeamsForUser: (userId) => {
-    const teams = readData('teams');
-    return teams.filter(t => t.members.includes(userId));
+  getTeams: async () => {
+    return await Team.find({}).lean();
   },
   
-  createTeam: (teamData) => {
-    const teams = readData('teams');
+  findTeamById: async (id) => {
+    return await Team.findOne({ id }).lean();
+  },
+
+  findTeamsForUser: async (userId) => {
+    return await Team.find({ members: userId }).lean();
+  },
+  
+  createTeam: async (teamData) => {
     const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newTeam = {
+    const newTeam = new Team({
       id: `PULSE-${randomCode}`,
       name: teamData.name,
       passcode: teamData.passcode,
@@ -90,23 +126,19 @@ const database = {
       channels: [
         { id: 'general', name: 'general', description: 'Company-wide announcements and work-based discussions' },
         { id: 'random', name: 'random', description: 'Non-work talk and banter' }
-      ],
-      createdAt: new Date().toISOString()
-    };
-    teams.push(newTeam);
-    writeData('teams', teams);
-    return newTeam;
+      ]
+    });
+    await newTeam.save();
+    return newTeam.toObject();
   },
 
-  joinTeam: (teamId, passcode, userId) => {
-    const teams = readData('teams');
-    const teamIndex = teams.findIndex(t => t.id === teamId);
+  joinTeam: async (teamId, passcode, userId) => {
+    const team = await Team.findOne({ id: teamId });
     
-    if (teamIndex === -1) {
+    if (!team) {
       throw new Error('Team not found. Please verify the Team ID.');
     }
     
-    const team = teams[teamIndex];
     if (team.passcode !== passcode) {
       throw new Error('Incorrect passcode. Please try again.');
     }
@@ -116,108 +148,86 @@ const database = {
     }
     
     team.members.push(userId);
-    teams[teamIndex] = team;
-    writeData('teams', teams);
-    return team;
+    await team.save();
+    return team.toObject();
   },
 
-  leaveTeam: (teamId, userId) => {
-    const teams = readData('teams');
-    const teamIndex = teams.findIndex(t => t.id === teamId);
-    if (teamIndex === -1) {
+  leaveTeam: async (teamId, userId) => {
+    const team = await Team.findOne({ id: teamId });
+    if (!team) {
       throw new Error('Team not found.');
     }
-    const team = teams[teamIndex];
     if (!team.members.includes(userId)) {
       throw new Error('You are not a member of this team.');
     }
+    
     team.members = team.members.filter(m => m !== userId);
     if (team.members.length === 0) {
-      // Delete team if no members are left
-      teams.splice(teamIndex, 1);
+      await Team.deleteOne({ id: teamId });
+      return null;
     } else {
       if (team.creatorId === userId) {
         team.creatorId = team.members[0];
       }
-      teams[teamIndex] = team;
+      await team.save();
     }
-    writeData('teams', teams);
-    return team;
+    return team.toObject();
   },
 
-  updateTeam: (updatedTeam) => {
-    const teams = readData('teams');
-    const index = teams.findIndex(t => t.id === updatedTeam.id);
-    if (index !== -1) {
-      teams[index] = updatedTeam;
-      writeData('teams', teams);
-      return true;
-    }
-    return false;
+  updateTeam: async (updatedTeam) => {
+    const result = await Team.updateOne({ id: updatedTeam.id }, { $set: updatedTeam });
+    return result.modifiedCount > 0;
   },
 
-  // Message Operations
-  getMessages: (teamId, channelId) => {
-    const messages = readData('messages');
-    return messages.filter(m => m.teamId === teamId && m.channelId === channelId);
+  getMessages: async (teamId, channelId) => {
+    return await Message.find({ teamId, channelId }).sort({ timestamp: 1 }).lean();
   },
 
-  createMessage: (messageData) => {
-    const messages = readData('messages');
-    const newMsg = {
+  createMessage: async (messageData) => {
+    const newMsg = new Message({
       id: Math.random().toString(36).substr(2, 9),
-      ...messageData,
-      timestamp: new Date().toISOString()
-    };
-    messages.push(newMsg);
-    writeData('messages', messages);
-    return newMsg;
+      ...messageData
+    });
+    await newMsg.save();
+    return newMsg.toObject();
   },
 
-  createChannel: (teamId, channelName, description) => {
-    const teams = readData('teams');
-    const index = teams.findIndex(t => t.id === teamId);
-    if (index === -1) throw new Error('Team not found');
+  createChannel: async (teamId, channelName, description) => {
+    const team = await Team.findOne({ id: teamId });
+    if (!team) throw new Error('Team not found');
+    
+    const channelId = channelName.toLowerCase().replace(/\s+/g, '-').trim();
+    
+    if (team.channels.some(c => c.id === channelId)) {
+      throw new Error('Channel already exists');
+    }
     
     const newChannel = {
-      id: channelName.toLowerCase().replace(/\s+/g, '-').trim(),
+      id: channelId,
       name: channelName.toLowerCase().trim(),
       description: description || ''
     };
     
-    // Check if channel already exists
-    if (teams[index].channels.some(c => c.id === newChannel.id)) {
-      throw new Error('Channel already exists');
-    }
-    
-    teams[index].channels.push(newChannel);
-    writeData('teams', teams);
+    team.channels.push(newChannel);
+    await team.save();
     return newChannel;
   },
 
-  updateUser: (userId, updateData) => {
-    const users = readData('users');
-    const index = users.findIndex(u => u.id === userId);
-    if (index === -1) throw new Error('User not found');
+  updateUser: async (userId, updateData) => {
+    const user = await User.findOne({ id: userId });
+    if (!user) throw new Error('User not found');
     
-    users[index] = {
-      ...users[index],
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    };
-    writeData('users', users);
-    return users[index];
+    Object.assign(user, updateData, { updatedAt: new Date() });
+    await user.save();
+    return user.toObject();
   },
 
-  getTeamMembers: (teamId) => {
-    const teams = readData('teams');
-    const team = teams.find(t => t.id === teamId);
+  getTeamMembers: async (teamId) => {
+    const team = await Team.findOne({ id: teamId }).lean();
     if (!team) return [];
     
-    const users = readData('users');
-    return users
-      .filter(u => team.members.includes(u.id))
-      .map(({ password, ...u }) => u);
+    const users = await User.find({ id: { $in: team.members } }).lean();
+    return users.map(({ password, verificationToken, ...u }) => u);
   }
 };
 

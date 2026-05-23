@@ -34,6 +34,7 @@ const Teams = () => {
   const [inCall, setInCall] = useState(false);
   const [callType, setCallType] = useState('video'); // 'voice' or 'video'
   const [incomingCallAlert, setIncomingCallAlert] = useState(null); // { teamId, channelId, channelName, userName, callType }
+  const [activeCalls, setActiveCalls] = useState([]);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showModal, setShowModal] = useState(false); // Create/Join Team modal
   const [modalTab, setModalTab] = useState('create'); // 'create' or 'join'
@@ -189,6 +190,41 @@ const Teams = () => {
 
     return () => clearTimeout(timer);
   }, [gifSearchQuery]);
+
+  // Sync active calls state
+  useEffect(() => {
+    if (!socket || !currentTeam) {
+      setActiveCalls([]);
+      return;
+    }
+
+    const fetchActiveCalls = async () => {
+      try {
+        const res = await fetch(`/api/teams/${currentTeam.id}/active-calls`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setActiveCalls(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch active calls:", err);
+      }
+    };
+
+    fetchActiveCalls();
+    socket.emit('get_active_calls', { teamId: currentTeam.id });
+
+    socket.on('active_calls_update', (list) => {
+      setActiveCalls(list);
+    });
+
+    return () => {
+      socket.off('active_calls_update');
+    };
+  }, [socket, currentTeam]);
 
   // Click outside detection for media picker and emoji picker
   useEffect(() => {
@@ -1034,16 +1070,36 @@ const Teams = () => {
                 </div>
 
                 <div className="channel-list">
-                  {currentTeam.channels?.map((chan) => (
-                    <button
-                      key={chan.id}
-                      className={`channel-item ${currentChannel?.id === chan.id ? 'active' : ''}`}
-                      onClick={() => setCurrentChannel(chan)}
-                    >
-                      <Hash size={16} className="hash-icon" />
-                      <span>{chan.name}</span>
-                    </button>
-                  ))}
+                  {currentTeam.channels?.map((chan) => {
+                    const hasActiveCall = activeCalls.some(call => call.channelId === chan.id);
+                    return (
+                      <button
+                        key={chan.id}
+                        className={`channel-item ${currentChannel?.id === chan.id ? 'active' : ''}`}
+                        onClick={() => setCurrentChannel(chan)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Hash size={16} className="hash-icon" />
+                          <span>{chan.name}</span>
+                        </div>
+                        {hasActiveCall && (
+                          <div 
+                            style={{ 
+                              width: '8px', 
+                              height: '8px', 
+                              borderRadius: '50%', 
+                              backgroundColor: '#10b981', 
+                              boxShadow: '0 0 8px #10b981',
+                              marginRight: '6px'
+                            }} 
+                            className="pulse-badge-animation"
+                            title="Active Call"
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1105,45 +1161,71 @@ const Teams = () => {
                 >
                   <Users size={18} />
                 </button>
-                <button 
-                  className="header-btn" 
-                  title="Start Voice Call" 
-                  onClick={() => {
-                    setCallType('voice');
-                    setInCall(true);
-                    if (socket && currentTeam && currentChannel) {
-                      socket.emit('start_call', {
-                        teamId: currentTeam.id,
-                        channelId: currentChannel.id,
-                        channelName: currentChannel.name,
-                        userName: user.name,
-                        callType: 'voice'
-                      });
-                    }
-                  }}
-                >
-                  <Phone size={18} />
-                </button>
-                <button 
-                  className="header-btn glow-btn-header" 
-                  title="Start Meeting Call" 
-                  onClick={() => {
-                    setCallType('video');
-                    setInCall(true);
-                    if (socket && currentTeam && currentChannel) {
-                      socket.emit('start_call', {
-                        teamId: currentTeam.id,
-                        channelId: currentChannel.id,
-                        channelName: currentChannel.name,
-                        userName: user.name,
-                        callType: 'video'
-                      });
-                    }
-                  }}
-                >
-                  <Sparkles size={16} />
-                  <span>Meet</span>
-                </button>
+                {activeCalls.some(call => call.channelId === currentChannel.id) ? (
+                  <button 
+                    className="header-btn glow-btn-header" 
+                    title="Join Active Call" 
+                    onClick={() => {
+                      const activeCall = activeCalls.find(call => call.channelId === currentChannel.id);
+                      setCallType(activeCall?.callType || 'video');
+                      setInCall(true);
+                    }}
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      borderColor: '#10b981',
+                      boxShadow: '0 0 15px rgba(16, 185, 129, 0.4)',
+                      color: 'white',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Sparkles size={16} />
+                    <span>Join Call</span>
+                  </button>
+                ) : (
+                  <>
+                    <button 
+                      className="header-btn" 
+                      title="Start Voice Call" 
+                      onClick={() => {
+                        setCallType('voice');
+                        setInCall(true);
+                        if (socket && currentTeam && currentChannel) {
+                          socket.emit('start_call', {
+                            teamId: currentTeam.id,
+                            channelId: currentChannel.id,
+                            channelName: currentChannel.name,
+                            userName: user.name,
+                            callType: 'voice'
+                          });
+                        }
+                      }}
+                    >
+                      <Phone size={18} />
+                    </button>
+                    <button 
+                      className="header-btn glow-btn-header" 
+                      title="Start Meeting Call" 
+                      onClick={() => {
+                        setCallType('video');
+                        setInCall(true);
+                        if (socket && currentTeam && currentChannel) {
+                          socket.emit('start_call', {
+                            teamId: currentTeam.id,
+                            channelId: currentChannel.id,
+                            channelName: currentChannel.name,
+                            userName: user.name,
+                            callType: 'video'
+                          });
+                        }
+                      }}
+                    >
+                      <Sparkles size={16} />
+                      <span>Meet</span>
+                    </button>
+                  </>
+                )}
               </div>
             </header>
 

@@ -5,10 +5,20 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const mongoose = require('mongoose');
 const database = require('./database');
 
 const app = express();
 const server = http.createServer(app);
+
+// Connect to MongoDB
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pulse-teams';
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB successfully'))
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    console.log('Ensure MongoDB is installed and running locally, or supply MONGODB_URI.');
+  });
 
 // Environment variables
 const PORT = process.env.PORT || 5000;
@@ -106,7 +116,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = database.findUserByEmail(email);
+    const existingUser = await database.findUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({ message: 'User with this email already exists.' });
     }
@@ -116,25 +126,46 @@ app.post('/api/auth/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // Save user
-    const newUser = database.createUser({
+    const newUser = await database.createUser({
       name,
       email: email.toLowerCase(),
       password: hashedPassword,
-      avatarColor: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}` // Random modern color for user avatar
+      avatarColor: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`
     });
 
-    // Generate JWT token
-    const token = jwt.sign({ id: newUser.id, name: newUser.name, email: newUser.email }, JWT_SECRET, { expiresIn: '7d' });
-
-    // Respond with user and token (excluding password)
-    const { password: _, ...userWithoutPassword } = newUser;
     res.status(201).json({
-      user: userWithoutPassword,
-      token
+      requireVerification: true,
+      email: newUser.email,
+      message: 'Account created. A 6-digit verification code has been printed to the server console.'
     });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Verify Email
+app.post('/api/auth/verify', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({ message: 'Email and verification code are required.' });
+    }
+
+    const verifiedUser = await database.verifyUserEmail(email, code);
+
+    // Generate JWT token
+    const token = jwt.sign({ id: verifiedUser.id, name: verifiedUser.name, email: verifiedUser.email }, JWT_SECRET, { expiresIn: '7d' });
+
+    const { password: _, verificationToken: __, ...userWithoutPassword } = verifiedUser;
+    res.status(200).json({
+      user: userWithoutPassword,
+      token
+    });
+  } catch (error) {
+    console.error('Verification error:', error);
+    res.status(400).json({ message: error.message || 'Verification failed.' });
   }
 });
 
@@ -148,9 +179,18 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Check user exists
-    const user = database.findUserByEmail(email);
+    const user = await database.findUserByEmail(email);
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials.' });
+    }
+
+    // Enforce email verification check
+    if (!user.verified) {
+      return res.status(400).json({
+        requireVerification: true,
+        email: user.email,
+        message: 'Please verify your email before logging in.'
+      });
     }
 
     // Verify password
@@ -163,7 +203,7 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     // Respond (excluding password)
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, verificationToken: __, ...userWithoutPassword } = user;
     res.status(200).json({
       user: userWithoutPassword,
       token
@@ -175,13 +215,13 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Get Current User
-app.get('/api/auth/me', authenticateToken, (req, res) => {
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
-    const user = database.findUserById(req.user.id);
+    const user = await database.findUserById(req.user.id);
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
     }
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, verificationToken: __, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
   } catch (error) {
     res.status(500).json({ message: 'Server error.' });
@@ -192,7 +232,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 // --- TEAM ROUTES ---
 
 // Create a Team
-app.post('/api/teams/create', authenticateToken, (req, res) => {
+app.post('/api/teams/create', authenticateToken, async (req, res) => {
   try {
     const { name, passcode } = req.body;
 
@@ -200,7 +240,7 @@ app.post('/api/teams/create', authenticateToken, (req, res) => {
       return res.status(400).json({ message: 'Team name and passcode are required.' });
     }
 
-    const newTeam = database.createTeam({
+    const newTeam = await database.createTeam({
       name,
       passcode,
       creatorId: req.user.id
@@ -214,7 +254,7 @@ app.post('/api/teams/create', authenticateToken, (req, res) => {
 });
 
 // Join a Team
-app.post('/api/teams/join', authenticateToken, (req, res) => {
+app.post('/api/teams/join', authenticateToken, async (req, res) => {
   try {
     const { teamId, passcode } = req.body;
 
@@ -222,7 +262,7 @@ app.post('/api/teams/join', authenticateToken, (req, res) => {
       return res.status(400).json({ message: 'Team ID and passcode are required.' });
     }
 
-    const team = database.joinTeam(teamId.toUpperCase().trim(), passcode.trim(), req.user.id);
+    const team = await database.joinTeam(teamId.toUpperCase().trim(), passcode.trim(), req.user.id);
     res.status(200).json(team);
   } catch (error) {
     console.error('Error joining team:', error);
@@ -231,10 +271,10 @@ app.post('/api/teams/join', authenticateToken, (req, res) => {
 });
 
 // Leave a Team
-app.post('/api/teams/:teamId/leave', authenticateToken, (req, res) => {
+app.post('/api/teams/:teamId/leave', authenticateToken, async (req, res) => {
   try {
     const { teamId } = req.params;
-    const team = database.leaveTeam(teamId, req.user.id);
+    const team = await database.leaveTeam(teamId, req.user.id);
     res.status(200).json({ message: 'Successfully left the team.', teamId });
   } catch (error) {
     console.error('Error leaving team:', error);
@@ -243,9 +283,9 @@ app.post('/api/teams/:teamId/leave', authenticateToken, (req, res) => {
 });
 
 // Get User's Teams
-app.get('/api/teams', authenticateToken, (req, res) => {
+app.get('/api/teams', authenticateToken, async (req, res) => {
   try {
-    const userTeams = database.findTeamsForUser(req.user.id);
+    const userTeams = await database.findTeamsForUser(req.user.id);
     res.status(200).json(userTeams);
   } catch (error) {
     console.error('Error fetching user teams:', error);
@@ -254,17 +294,17 @@ app.get('/api/teams', authenticateToken, (req, res) => {
 });
 
 // Get Channel Messages
-app.get('/api/teams/:teamId/channels/:channelId/messages', authenticateToken, (req, res) => {
+app.get('/api/teams/:teamId/channels/:channelId/messages', authenticateToken, async (req, res) => {
   try {
     const { teamId, channelId } = req.params;
     
     // Verify member permissions
-    const team = database.findTeamById(teamId);
+    const team = await database.findTeamById(teamId);
     if (!team || !team.members.includes(req.user.id)) {
       return res.status(403).json({ message: 'Forbidden. You are not a member of this team.' });
     }
     
-    const messages = database.getMessages(teamId, channelId);
+    const messages = await database.getMessages(teamId, channelId);
     res.status(200).json(messages);
   } catch (error) {
     console.error('Error fetching messages:', error);
@@ -273,17 +313,17 @@ app.get('/api/teams/:teamId/channels/:channelId/messages', authenticateToken, (r
 });
 
 // Get Team Members
-app.get('/api/teams/:teamId/members', authenticateToken, (req, res) => {
+app.get('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
   try {
     const { teamId } = req.params;
-    const team = database.findTeamById(teamId);
+    const team = await database.findTeamById(teamId);
     if (!team) {
       return res.status(404).json({ message: 'Team not found.' });
     }
     if (!team.members.includes(req.user.id)) {
       return res.status(403).json({ message: 'Forbidden. You are not a member of this team.' });
     }
-    const members = database.getTeamMembers(teamId);
+    const members = await database.getTeamMembers(teamId);
     res.status(200).json(members);
   } catch (error) {
     console.error('Error fetching team members:', error);
@@ -292,7 +332,7 @@ app.get('/api/teams/:teamId/members', authenticateToken, (req, res) => {
 });
 
 // Create Channel in Team
-app.post('/api/teams/:teamId/channels', authenticateToken, (req, res) => {
+app.post('/api/teams/:teamId/channels', authenticateToken, async (req, res) => {
   try {
     const { teamId } = req.params;
     const { name, description } = req.body;
@@ -301,7 +341,7 @@ app.post('/api/teams/:teamId/channels', authenticateToken, (req, res) => {
       return res.status(400).json({ message: 'Channel name is required.' });
     }
 
-    const team = database.findTeamById(teamId);
+    const team = await database.findTeamById(teamId);
     if (!team) {
       return res.status(404).json({ message: 'Team not found.' });
     }
@@ -309,7 +349,7 @@ app.post('/api/teams/:teamId/channels', authenticateToken, (req, res) => {
       return res.status(403).json({ message: 'Forbidden. You are not a member of this team.' });
     }
 
-    const newChannel = database.createChannel(teamId, name, description);
+    const newChannel = await database.createChannel(teamId, name, description);
     
     // Broadcast to team room via Socket.io
     io.to(teamId).emit('channel_created', { teamId, channel: newChannel });
@@ -321,8 +361,26 @@ app.post('/api/teams/:teamId/channels', authenticateToken, (req, res) => {
   }
 });
 
+// Get Active Calls for a Team
+app.get('/api/teams/:teamId/active-calls', authenticateToken, (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const activeList = Object.keys(activeCalls)
+      .filter(cId => activeCalls[cId].teamId === teamId)
+      .map(cId => ({
+        channelId: cId,
+        callType: activeCalls[cId].callType,
+        userName: activeCalls[cId].userName
+      }));
+    res.status(200).json(activeList);
+  } catch (error) {
+    console.error('Error fetching active calls:', error);
+    res.status(500).json({ message: 'Server error fetching active calls.' });
+  }
+});
+
 // Update User Profile
-app.put('/api/users/profile', authenticateToken, (req, res) => {
+app.put('/api/users/profile', authenticateToken, async (req, res) => {
   try {
     const { name, email, avatarColor, statusMessage, onlineStatus, avatarUrl, phone, jobTitle, department } = req.body;
     
@@ -337,7 +395,7 @@ app.put('/api/users/profile', authenticateToken, (req, res) => {
     if (jobTitle !== undefined) updateData.jobTitle = jobTitle;
     if (department !== undefined) updateData.department = department;
 
-    const updatedUser = database.updateUser(req.user.id, updateData);
+    const updatedUser = await database.updateUser(req.user.id, updateData);
     const { password, ...safeUser } = updatedUser;
     
     // Broadcast user profile updates
@@ -392,7 +450,7 @@ io.on('connection', (socket) => {
   });
 
   // Handle incoming message and broadcast to others in room
-  socket.on('send_message', (messageData) => {
+  socket.on('send_message', async (messageData) => {
     try {
       const { teamId, channelId, text, senderId, senderName, senderAvatarColor, senderAvatarUrl, isMedia, isAttachment } = messageData;
       
@@ -400,7 +458,7 @@ io.on('connection', (socket) => {
         return;
       }
       
-      const newMsg = database.createMessage({
+      const newMsg = await database.createMessage({
         teamId,
         channelId,
         text,
@@ -428,7 +486,8 @@ io.on('connection', (socket) => {
       channelName,
       userName,
       callType,
-      screenSharer: null
+      screenSharer: null,
+      participants: [socket.id]
     };
 
     const teamChannelRoom = `${teamId}_${channelId}`;
@@ -442,6 +501,16 @@ io.on('connection', (socket) => {
       callerSocketId: socket.id
     });
 
+    // Notify everyone in the team of active call update
+    const activeList = Object.keys(activeCalls)
+      .filter(cId => activeCalls[cId].teamId === teamId)
+      .map(cId => ({
+        channelId: cId,
+        callType: activeCalls[cId].callType,
+        userName: activeCalls[cId].userName
+      }));
+    io.to(teamId).emit('active_calls_update', activeList);
+
     console.log(`Call notification sent for room: ${teamChannelRoom} (Type: ${callType})`);
   });
   
@@ -449,6 +518,22 @@ io.on('connection', (socket) => {
     const callRoomName = `call_${teamId}_${channelId}`;
     socket.join(callRoomName);
     
+    // Track participant socket
+    if (!activeCalls[channelId]) {
+      activeCalls[channelId] = {
+        teamId,
+        channelId,
+        channelName: 'Channel Meeting',
+        userName,
+        callType: 'video',
+        screenSharer: null,
+        participants: []
+      };
+    }
+    if (!activeCalls[channelId].participants.includes(socket.id)) {
+      activeCalls[channelId].participants.push(socket.id);
+    }
+
     // Get all other participants in the call room
     const clients = io.sockets.adapter.rooms.get(callRoomName);
     const otherUsers = [];
@@ -478,13 +563,25 @@ io.on('connection', (socket) => {
         ownerName: activeCalls[channelId].screenSharer.userName
       });
     }
+
+    // Notify everyone in the team of active call update
+    const activeList = Object.keys(activeCalls)
+      .filter(cId => activeCalls[cId].teamId === teamId)
+      .map(cId => ({
+        channelId: cId,
+        callType: activeCalls[cId].callType,
+        userName: activeCalls[cId].userName
+      }));
+    io.to(teamId).emit('active_calls_update', activeList);
     
     console.log(`Socket ${socket.id} joined call room: ${callRoomName}`);
   });
 
-  socket.on('send_call_signal', ({ targetSocketId, signal }) => {
+  socket.on('send_call_signal', ({ targetSocketId, senderName, senderAvatarColor, signal }) => {
     io.to(targetSocketId).emit('receive_call_signal', {
       senderSocketId: socket.id,
+      senderName,
+      senderAvatarColor,
       signal
     });
   });
@@ -520,14 +617,37 @@ io.on('connection', (socket) => {
       socket.to(callRoomName).emit('screen_share_cleared');
     }
 
-    socket.to(callRoomName).emit('user_left_call', { socketId: socket.id });
-    console.log(`Socket ${socket.id} left call room: ${callRoomName}`);
-
-    // If call room is empty, clear active call state
-    const clients = io.sockets.adapter.rooms.get(callRoomName);
-    if (!clients || clients.size === 0) {
-      delete activeCalls[channelId];
+    if (activeCalls[channelId]) {
+      activeCalls[channelId].participants = activeCalls[channelId].participants.filter(id => id !== socket.id);
+      if (activeCalls[channelId].participants.length === 0) {
+        delete activeCalls[channelId];
+      }
     }
+
+    socket.to(callRoomName).emit('user_left_call', { socketId: socket.id });
+    
+    // Notify everyone in the team of active call update
+    const activeList = Object.keys(activeCalls)
+      .filter(cId => activeCalls[cId].teamId === teamId)
+      .map(cId => ({
+        channelId: cId,
+        callType: activeCalls[cId].callType,
+        userName: activeCalls[cId].userName
+      }));
+    io.to(teamId).emit('active_calls_update', activeList);
+
+    console.log(`Socket ${socket.id} left call room: ${callRoomName}`);
+  });
+
+  socket.on('get_active_calls', ({ teamId }) => {
+    const activeList = Object.keys(activeCalls)
+      .filter(cId => activeCalls[cId].teamId === teamId)
+      .map(cId => ({
+        channelId: cId,
+        callType: activeCalls[cId].callType,
+        userName: activeCalls[cId].userName
+      }));
+    socket.emit('active_calls_update', activeList);
   });
 
   socket.on('disconnect', () => {
@@ -545,10 +665,20 @@ io.on('connection', (socket) => {
 
         socket.to(room).emit('user_left_call', { socketId: socket.id });
         
-        // Clear active call state if empty
-        const clients = io.sockets.adapter.rooms.get(room);
-        if (!clients || clients.size === 0) {
-          delete activeCalls[channelId];
+        if (activeCalls[channelId]) {
+          activeCalls[channelId].participants = activeCalls[channelId].participants.filter(id => id !== socket.id);
+          const teamId = activeCalls[channelId].teamId;
+          if (activeCalls[channelId].participants.length === 0) {
+            delete activeCalls[channelId];
+          }
+          const activeList = Object.keys(activeCalls)
+            .filter(cId => activeCalls[cId].teamId === teamId)
+            .map(cId => ({
+              channelId: cId,
+              callType: activeCalls[cId].callType,
+              userName: activeCalls[cId].userName
+            }));
+          io.to(teamId).emit('active_calls_update', activeList);
         }
       }
     });

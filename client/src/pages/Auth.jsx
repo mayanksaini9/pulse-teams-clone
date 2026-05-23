@@ -12,6 +12,8 @@ const Auth = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [requireVerification, setRequireVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -20,15 +22,76 @@ const Auth = () => {
     setSubmitting(true);
 
     try {
+      if (requireVerification) {
+        const response = await fetch('/api/auth/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ email: email.toLowerCase(), code: verificationCode })
+        });
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.message || 'Verification failed.');
+        }
+
+        setSuccess('Verification successful! Logging you in...');
+        localStorage.setItem('pulse_token', data.token);
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+        return;
+      }
+
       if (isLogin) {
-        await login(email, password);
+        // Run API request directly so we can catch verification status
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ email: email.toLowerCase(), password })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (data.requireVerification) {
+            setRequireVerification(true);
+            setEmail(data.email);
+            throw new Error(data.message);
+          }
+          throw new Error(data.message || 'Login failed.');
+        }
+
         setSuccess('Logged in successfully! Redirecting...');
+        localStorage.setItem('pulse_token', data.token);
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
       } else {
         if (!name.trim()) {
           throw new Error('Please enter your name.');
         }
-        await register(name, email, password);
-        setSuccess('Account created successfully! Redirecting...');
+        
+        const response = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name, email: email.toLowerCase(), password })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Registration failed.');
+        }
+
+        if (data.requireVerification) {
+          setRequireVerification(true);
+          setEmail(data.email);
+          setSuccess(data.message);
+        }
       }
     } catch (err) {
       setError(err.message || 'An error occurred. Please try again.');
@@ -39,11 +102,13 @@ const Auth = () => {
 
   const toggleAuthMode = () => {
     setIsLogin(!isLogin);
+    setRequireVerification(false);
     setError('');
     setSuccess('');
     setName('');
     setEmail('');
     setPassword('');
+    setVerificationCode('');
   };
 
   return (
@@ -61,11 +126,13 @@ const Auth = () => {
             </div>
             <span className="logo-text text-gradient">PULSE</span>
           </div>
-          <h1>{isLogin ? 'Welcome Back' : 'Create Account'}</h1>
+          <h1>{requireVerification ? 'Verify Email' : isLogin ? 'Welcome Back' : 'Create Account'}</h1>
           <p className="auth-subtitle">
-            {isLogin 
-              ? 'Connect with your team using the next-gen workspace.' 
-              : 'Join Pulse and collaborate with high fidelity sound and style.'}
+            {requireVerification 
+              ? 'Enter the 6-digit verification code printed in your server logs.'
+              : isLogin 
+                ? 'Connect with your team using the next-gen workspace.' 
+                : 'Join Pulse and collaborate with high fidelity sound and style.'}
           </p>
         </div>
 
@@ -83,69 +150,91 @@ const Auth = () => {
         )}
 
         <form onSubmit={handleSubmit} className="auth-form">
-          {!isLogin && (
+          {requireVerification ? (
             <div className="input-group">
-              <label htmlFor="name">Full Name</label>
+              <label htmlFor="verificationCode">6-Digit Verification Code</label>
               <div className="input-wrapper">
-                <User className="input-icon" size={18} />
+                <ShieldCheck className="input-icon" size={18} />
                 <input
                   type="text"
-                  id="name"
+                  id="verificationCode"
                   className="input-field-custom"
-                  placeholder="John Doe"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  placeholder="123456"
+                  maxLength={6}
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value)}
                   disabled={submitting}
                   required
                 />
               </div>
             </div>
+          ) : (
+            <>
+              {!isLogin && (
+                <div className="input-group">
+                  <label htmlFor="name">Full Name</label>
+                  <div className="input-wrapper">
+                    <User className="input-icon" size={18} />
+                    <input
+                      type="text"
+                      id="name"
+                      className="input-field-custom"
+                      placeholder="John Doe"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={submitting}
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="input-group">
+                <label htmlFor="email">Work Email</label>
+                <div className="input-wrapper">
+                  <Mail className="input-icon" size={18} />
+                  <input
+                    type="email"
+                    id="email"
+                    className="input-field-custom"
+                    placeholder="name@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={submitting}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="input-group">
+                <div className="label-row">
+                  <label htmlFor="password">Password</label>
+                  {isLogin && <a href="#" className="forgot-link">Forgot?</a>}
+                </div>
+                <div className="input-wrapper">
+                  <Lock className="input-icon" size={18} />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    id="password"
+                    className="input-field-custom"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={submitting}
+                    required
+                  />
+                  <button 
+                    type="button" 
+                    className="eye-btn" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex="-1"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+            </>
           )}
-
-          <div className="input-group">
-            <label htmlFor="email">Work Email</label>
-            <div className="input-wrapper">
-              <Mail className="input-icon" size={18} />
-              <input
-                type="email"
-                id="email"
-                className="input-field-custom"
-                placeholder="name@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={submitting}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="input-group">
-            <div className="label-row">
-              <label htmlFor="password">Password</label>
-              {isLogin && <a href="#" className="forgot-link">Forgot?</a>}
-            </div>
-            <div className="input-wrapper">
-              <Lock className="input-icon" size={18} />
-              <input
-                type={showPassword ? "text" : "password"}
-                id="password"
-                className="input-field-custom"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={submitting}
-                required
-              />
-              <button 
-                type="button" 
-                className="eye-btn" 
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex="-1"
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
 
           <button 
             type="submit" 
@@ -156,7 +245,7 @@ const Auth = () => {
               <span className="loader"></span>
             ) : (
               <>
-                <span>{isLogin ? 'Sign In' : 'Create Account'}</span>
+                <span>{requireVerification ? 'Verify Account' : isLogin ? 'Sign In' : 'Create Account'}</span>
                 <ArrowRight size={18} />
               </>
             )}
@@ -165,10 +254,18 @@ const Auth = () => {
 
         <div className="auth-footer">
           <p>
-            {isLogin ? "Don't have an account?" : "Already have an account?"}{' '}
-            <button type="button" className="toggle-mode-btn" onClick={toggleAuthMode}>
-              {isLogin ? 'Sign up' : 'Sign in'}
-            </button>
+            {requireVerification ? (
+              <button type="button" className="toggle-mode-btn" onClick={toggleAuthMode}>
+                Back to Sign in
+              </button>
+            ) : (
+              <>
+                {isLogin ? "Don't have an account?" : "Already have an account?"}{' '}
+                <button type="button" className="toggle-mode-btn" onClick={toggleAuthMode}>
+                  {isLogin ? 'Sign up' : 'Sign in'}
+                </button>
+              </>
+            )}
           </p>
         </div>
       </div>

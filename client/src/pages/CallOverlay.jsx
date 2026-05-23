@@ -130,6 +130,8 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
         await pc.setLocalDescription(offer);
         socket.emit('send_call_signal', {
           targetSocketId: socketId,
+          senderName: currentUser.name,
+          senderAvatarColor: currentUser.avatarColor,
           signal: { type: 'offer', sdp: pc.localDescription }
         });
       } catch (err) {
@@ -138,8 +140,25 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     });
 
     // Handle incoming offer, answer or ice candidate signals
-    socket.on('receive_call_signal', async ({ senderSocketId, signal }) => {
-      const pc = pcs.current[senderSocketId] || createPeerConnection(senderSocketId);
+    socket.on('receive_call_signal', async ({ senderSocketId, senderName, senderAvatarColor, signal }) => {
+      const pc = pcs.current[senderSocketId] || createPeerConnection(senderSocketId, senderName, senderAvatarColor);
+
+      // Dynamically upgrade Guest to real username if received
+      if (senderName) {
+        setRemoteStreams(prev => {
+          if (prev[senderSocketId] && (prev[senderSocketId].userName === 'Guest' || prev[senderSocketId].userName !== senderName)) {
+            return {
+              ...prev,
+              [senderSocketId]: {
+                ...prev[senderSocketId],
+                userName: senderName,
+                avatarColor: senderAvatarColor || prev[senderSocketId].avatarColor
+              }
+            };
+          }
+          return prev;
+        });
+      }
 
       if (signal.type === 'offer') {
         // Add tracks if not added already
@@ -150,18 +169,43 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
         }
         
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        
+        // Process queued ice candidates
+        if (pc.iceQueue) {
+          for (const cand of pc.iceQueue) {
+            await pc.addIceCandidate(cand).catch(err => console.error('Error adding queued ICE candidate:', err));
+          }
+          pc.iceQueue = [];
+        }
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         
         socket.emit('send_call_signal', {
           targetSocketId: senderSocketId,
+          senderName: currentUser.name,
+          senderAvatarColor: currentUser.avatarColor,
           signal: { type: 'answer', sdp: pc.localDescription }
         });
       } else if (signal.type === 'answer') {
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        
+        // Process queued ice candidates
+        if (pc.iceQueue) {
+          for (const cand of pc.iceQueue) {
+            await pc.addIceCandidate(cand).catch(err => console.error('Error adding queued ICE candidate:', err));
+          }
+          pc.iceQueue = [];
+        }
       } else if (signal.candidate) {
         try {
-          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          const candidateObj = new RTCIceCandidate(signal.candidate);
+          if (pc.remoteDescription && pc.remoteDescription.type) {
+            await pc.addIceCandidate(candidateObj);
+          } else {
+            if (!pc.iceQueue) pc.iceQueue = [];
+            pc.iceQueue.push(candidateObj);
+          }
         } catch (err) {
           console.error('Error adding ICE candidate:', err);
         }
