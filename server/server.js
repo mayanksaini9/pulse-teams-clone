@@ -1,4 +1,6 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
