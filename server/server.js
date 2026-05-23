@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const mongoose = require('mongoose');
 const database = require('./database');
+const { sendVerificationEmail } = require('./email');
 
 const app = express();
 const server = http.createServer(app);
@@ -134,6 +135,8 @@ const authenticateToken = (req, res, next) => {
 
 // --- AUTHENTICATION ROUTES ---
 
+const pendingUsers = new Map();
+
 // Register
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -152,8 +155,10 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
+    const cleanEmail = email.toLowerCase();
+
     // Check if user already exists
-    const existingUser = await database.findUserByEmail(email);
+    const existingUser = await database.findUserByEmail(cleanEmail);
     if (existingUser) {
       return res.status(400).json({ message: 'User with this email already exists.' });
     }
@@ -162,18 +167,34 @@ app.post('/api/auth/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Save user
-    const newUser = await database.createUser({
-      name,
-      email: email.toLowerCase(),
-      password: hashedPassword,
-      avatarColor: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`
+    // Generate code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Send real email in background
+    sendVerificationEmail(cleanEmail, verificationCode).catch(err => {
+      console.error('Failed to send verification email in background:', err);
     });
+
+    // Save in memory pending registration store
+    pendingUsers.set(cleanEmail, {
+      name,
+      email: cleanEmail,
+      password: hashedPassword,
+      verificationCode,
+      avatarColor: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`,
+      expiresAt: Date.now() + 15 * 60 * 1000
+    });
+
+    console.log(`\n======================================================`);
+    console.log(`[EMAIL VERIFICATION (PENDING REGISTRATION)]`);
+    console.log(`Email: ${cleanEmail}`);
+    console.log(`Verification Code: ${verificationCode}`);
+    console.log(`======================================================\n`);
 
     res.status(201).json({
       requireVerification: true,
-      email: newUser.email,
-      message: 'Account created. A 6-digit verification code has been printed to the server console.'
+      email: cleanEmail,
+      message: 'please verify your account by writing the code to signing up successfully '
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -190,12 +211,48 @@ app.post('/api/auth/verify', async (req, res) => {
       return res.status(400).json({ message: 'Email and verification code are required.' });
     }
 
-    const verifiedUser = await database.verifyUserEmail(email, code);
+    const cleanEmail = email.toLowerCase();
+    const pending = pendingUsers.get(cleanEmail);
+
+    if (!pending) {
+      // Check if user is already in the database (could have been verified previously)
+      const existingUser = await database.findUserByEmail(cleanEmail);
+      if (existingUser && existingUser.verified) {
+        const token = jwt.sign({ id: existingUser.id, name: existingUser.name, email: existingUser.email }, JWT_SECRET, { expiresIn: '7d' });
+        const { password: _, verificationToken: __, ...userWithoutPassword } = existingUser;
+        return res.status(200).json({
+          user: userWithoutPassword,
+          token
+        });
+      }
+      return res.status(400).json({ message: 'Verification session not found or expired. Please register again.' });
+    }
+
+    if (pending.expiresAt < Date.now()) {
+      pendingUsers.delete(cleanEmail);
+      return res.status(400).json({ message: 'Verification code expired. Please register again.' });
+    }
+
+    if (pending.verificationCode !== code.trim()) {
+      return res.status(400).json({ message: 'Invalid verification code.' });
+    }
+
+    // Now save user to database since it is verified!
+    const newUser = await database.createUser({
+      name: pending.name,
+      email: pending.email,
+      password: pending.password,
+      avatarColor: pending.avatarColor,
+      verified: true
+    });
+
+    // Remove from pending cache
+    pendingUsers.delete(cleanEmail);
 
     // Generate JWT token
-    const token = jwt.sign({ id: verifiedUser.id, name: verifiedUser.name, email: verifiedUser.email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: newUser.id, name: newUser.name, email: newUser.email }, JWT_SECRET, { expiresIn: '7d' });
 
-    const { password: _, verificationToken: __, ...userWithoutPassword } = verifiedUser;
+    const { password: _, verificationToken: __, ...userWithoutPassword } = newUser;
     res.status(200).json({
       user: userWithoutPassword,
       token
@@ -226,7 +283,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({
         requireVerification: true,
         email: user.email,
-        message: 'Please verify your email before logging in.'
+        message: 'please verify your account by writing the code to signing up successfully '
       });
     }
 

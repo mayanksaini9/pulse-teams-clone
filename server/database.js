@@ -123,29 +123,34 @@ const database = {
   },
 
   createUser: async (userData) => {
-    const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
+    const isAlreadyVerified = userData.verified === true;
+    const verificationToken = isAlreadyVerified ? '' : Math.floor(100000 + Math.random() * 900000).toString();
     const cleanEmail = userData.email.toLowerCase();
     
-    // Trigger real email send (runs in background so it doesn't block request)
-    sendVerificationEmail(cleanEmail, verificationToken).catch(err => {
-      console.error('Failed to send verification email in background:', err);
-    });
+    if (!isAlreadyVerified) {
+      // Trigger real email send (runs in background so it doesn't block request)
+      sendVerificationEmail(cleanEmail, verificationToken).catch(err => {
+        console.error('Failed to send verification email in background:', err);
+      });
+    }
 
     if (isMongoConnected()) {
       const newUser = new User({
         id: Math.random().toString(36).substr(2, 9),
         ...userData,
         email: cleanEmail,
-        verified: false,
+        verified: isAlreadyVerified,
         verificationToken
       });
       await newUser.save();
       
-      console.log(`\n======================================================`);
-      console.log(`[EMAIL VERIFICATION (MONGODB)]`);
-      console.log(`Email: ${cleanEmail}`);
-      console.log(`Verification Code: ${verificationToken}`);
-      console.log(`======================================================\n`);
+      if (!isAlreadyVerified) {
+        console.log(`\n======================================================`);
+        console.log(`[EMAIL VERIFICATION (MONGODB)]`);
+        console.log(`Email: ${cleanEmail}`);
+        console.log(`Verification Code: ${verificationToken}`);
+        console.log(`======================================================\n`);
+      }
       
       return newUser.toObject();
     } else {
@@ -161,7 +166,7 @@ const database = {
         phone: '',
         jobTitle: '',
         department: '',
-        verified: false,
+        verified: isAlreadyVerified,
         verificationToken,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -169,11 +174,13 @@ const database = {
       users.push(newUser);
       writeData('users', users);
       
-      console.log(`\n======================================================`);
-      console.log(`[EMAIL VERIFICATION (JSON FILE FALLBACK)]`);
-      console.log(`Email: ${cleanEmail}`);
-      console.log(`Verification Code: ${verificationToken}`);
-      console.log(`======================================================\n`);
+      if (!isAlreadyVerified) {
+        console.log(`\n======================================================`);
+        console.log(`[EMAIL VERIFICATION (JSON FILE FALLBACK)]`);
+        console.log(`Email: ${cleanEmail}`);
+        console.log(`Verification Code: ${verificationToken}`);
+        console.log(`======================================================\n`);
+      }
       
       return newUser;
     }

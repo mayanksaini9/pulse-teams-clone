@@ -135,7 +135,7 @@ const Auth = () => {
           <h1>{requireVerification ? 'Verify Email' : isLogin ? 'Welcome Back' : 'Create Account'}</h1>
           <p className="auth-subtitle">
             {requireVerification 
-              ? 'Enter the 6-digit verification code printed in your server logs.'
+              ? 'please verify your account by writing the code to signing up successfully '
               : isLogin 
                 ? 'Connect with your team using the next-gen workspace.' 
                 : 'Join Pulse and collaborate with high fidelity sound and style.'}
