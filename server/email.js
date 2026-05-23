@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587');
 const SMTP_USER = process.env.SMTP_USER; // Your Gmail / SMTP email
-const SMTP_PASS = process.env.SMTP_PASS; // Your Gmail App Password / SMTP password
+const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null; // Auto-strip spaces
 
 console.log(`[EMAIL BOOT] SMTP_USER: ${SMTP_USER ? 'Configured (' + SMTP_USER + ')' : 'MISSING'}, SMTP_PASS: ${SMTP_PASS ? 'Configured' : 'MISSING'}`);
 
