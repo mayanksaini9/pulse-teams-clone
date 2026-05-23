@@ -115,6 +115,15 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ message: 'Please fill in all fields.' });
     }
 
+    // Validate password complexity: min 8 char with number and special sign
+    const hasNumber = /\d/.test(password);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>_+\-\[\]\\\/~`;]/.test(password);
+    if (password.length < 8 || !hasNumber || !hasSpecial) {
+      return res.status(400).json({ 
+        message: 'Password must be at least 8 characters long and contain at least one number and one special character.' 
+      });
+    }
+
     // Check if user already exists
     const existingUser = await database.findUserByEmail(email);
     if (existingUser) {

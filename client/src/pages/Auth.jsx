@@ -73,6 +73,12 @@ const Auth = () => {
         if (!name.trim()) {
           throw new Error('Please enter your name.');
         }
+
+        const hasNumber = /\d/.test(password);
+        const hasSpecial = /[!@#$%^&*(),.?":{}|<>_+\-\[\]\\\/~`;]/.test(password);
+        if (password.length < 8 || !hasNumber || !hasSpecial) {
+          throw new Error('Password must be at least 8 characters long and contain at least one number and one special character.');
+        }
         
         const response = await fetch('/api/auth/register', {
           method: 'POST',

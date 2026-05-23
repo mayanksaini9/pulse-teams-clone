@@ -1,6 +1,40 @@
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 
-// Define Schemas
+// --- JSON File Fallback Setup ---
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const getFilePath = (fileName) => path.join(DATA_DIR, `${fileName}.json`);
+
+const readData = (fileName) => {
+  const filePath = getFilePath(fileName);
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify([], null, 2));
+    return [];
+  }
+  try {
+    const data = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(data);
+  } catch (err) {
+    console.error(`Error reading database file: ${fileName}`, err);
+    return [];
+  }
+};
+
+const writeData = (fileName, data) => {
+  const filePath = getFilePath(fileName);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error(`Error writing database file: ${fileName}`, err);
+  }
+};
+
+// --- MongoDB / Mongoose Schemas ---
 const UserSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true },
   email: { type: String, unique: true, required: true, lowercase: true },
@@ -24,7 +58,7 @@ const TeamSchema = new mongoose.Schema({
   name: { type: String, required: true },
   passcode: { type: String, required: true },
   creatorId: { type: String, required: true },
-  members: [{ type: String }], // User IDs (string matching User.id)
+  members: [{ type: String }],
   channels: [{
     id: { type: String, required: true },
     name: { type: String, required: true },
@@ -52,182 +86,362 @@ const User = mongoose.models.User || mongoose.model('User', UserSchema);
 const Team = mongoose.models.Team || mongoose.model('Team', TeamSchema);
 const Message = mongoose.models.Message || mongoose.model('Message', MessageSchema);
 
+// Helper to determine if we should use MongoDB or JSON files
+const isMongoConnected = () => {
+  return mongoose.connection.readyState === 1;
+};
+
 const database = {
   getUsers: async () => {
-    return await User.find({}).lean();
+    if (isMongoConnected()) {
+      return await User.find({}).lean();
+    } else {
+      return readData('users');
+    }
   },
   
   findUserByEmail: async (email) => {
     if (!email) return null;
-    return await User.findOne({ email: email.toLowerCase() }).lean();
+    if (isMongoConnected()) {
+      return await User.findOne({ email: email.toLowerCase() }).lean();
+    } else {
+      const users = readData('users');
+      return users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
+    }
   },
 
   findUserById: async (id) => {
-    return await User.findOne({ id }).lean();
+    if (isMongoConnected()) {
+      return await User.findOne({ id }).lean();
+    } else {
+      const users = readData('users');
+      return users.find(u => u.id === id) || null;
+    }
   },
 
   createUser: async (userData) => {
-    // Generate a 6-digit email verification token
     const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
-    const newUser = new User({
-      id: Math.random().toString(36).substr(2, 9),
-      ...userData,
-      verified: false,
-      verificationToken
-    });
+    const cleanEmail = userData.email.toLowerCase();
     
-    await newUser.save();
-    
-    // Log the verification token to the server console for easy retrieval
-    console.log(`\n======================================================`);
-    console.log(`[EMAIL VERIFICATION]`);
-    console.log(`Email: ${userData.email}`);
-    console.log(`Verification Code: ${verificationToken}`);
-    console.log(`======================================================\n`);
-    
-    return newUser.toObject();
+    if (isMongoConnected()) {
+      const newUser = new User({
+        id: Math.random().toString(36).substr(2, 9),
+        ...userData,
+        email: cleanEmail,
+        verified: false,
+        verificationToken
+      });
+      await newUser.save();
+      
+      console.log(`\n======================================================`);
+      console.log(`[EMAIL VERIFICATION (MONGODB)]`);
+      console.log(`Email: ${cleanEmail}`);
+      console.log(`Verification Code: ${verificationToken}`);
+      console.log(`======================================================\n`);
+      
+      return newUser.toObject();
+    } else {
+      const users = readData('users');
+      const newUser = {
+        id: Math.random().toString(36).substr(2, 9),
+        ...userData,
+        email: cleanEmail,
+        avatarColor: userData.avatarColor || '#6366f1',
+        avatarUrl: '',
+        status: 'online',
+        statusMsg: '',
+        phone: '',
+        jobTitle: '',
+        department: '',
+        verified: false,
+        verificationToken,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      users.push(newUser);
+      writeData('users', users);
+      
+      console.log(`\n======================================================`);
+      console.log(`[EMAIL VERIFICATION (JSON FILE FALLBACK)]`);
+      console.log(`Email: ${cleanEmail}`);
+      console.log(`Verification Code: ${verificationToken}`);
+      console.log(`======================================================\n`);
+      
+      return newUser;
+    }
   },
 
   verifyUserEmail: async (email, token) => {
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
-      throw new Error('User not found.');
+    const cleanEmail = email.toLowerCase();
+    if (isMongoConnected()) {
+      const user = await User.findOne({ email: cleanEmail });
+      if (!user) {
+        throw new Error('User not found.');
+      }
+      if (user.verificationToken !== token) {
+        throw new Error('Invalid verification code.');
+      }
+      user.verified = true;
+      user.verificationToken = '';
+      await user.save();
+      return user.toObject();
+    } else {
+      const users = readData('users');
+      const userIndex = users.findIndex(u => u.email.toLowerCase() === cleanEmail);
+      if (userIndex === -1) {
+        throw new Error('User not found.');
+      }
+      if (users[userIndex].verificationToken !== token) {
+        throw new Error('Invalid verification code.');
+      }
+      users[userIndex].verified = true;
+      users[userIndex].verificationToken = '';
+      writeData('users', users);
+      return users[userIndex];
     }
-    if (user.verificationToken !== token) {
-      throw new Error('Invalid verification code.');
-    }
-    
-    user.verified = true;
-    user.verificationToken = ''; // Clear token after verification
-    await user.save();
-    return user.toObject();
   },
 
   getTeams: async () => {
-    return await Team.find({}).lean();
+    if (isMongoConnected()) {
+      return await Team.find({}).lean();
+    } else {
+      return readData('teams');
+    }
   },
   
   findTeamById: async (id) => {
-    return await Team.findOne({ id }).lean();
+    if (isMongoConnected()) {
+      return await Team.findOne({ id }).lean();
+    } else {
+      const teams = readData('teams');
+      return teams.find(t => t.id === id) || null;
+    }
   },
 
   findTeamsForUser: async (userId) => {
-    return await Team.find({ members: userId }).lean();
+    if (isMongoConnected()) {
+      return await Team.find({ members: userId }).lean();
+    } else {
+      const teams = readData('teams');
+      return teams.filter(t => t.members.includes(userId));
+    }
   },
   
   createTeam: async (teamData) => {
     const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newTeam = new Team({
-      id: `PULSE-${randomCode}`,
-      name: teamData.name,
-      passcode: teamData.passcode,
-      creatorId: teamData.creatorId,
-      members: [teamData.creatorId],
-      channels: [
-        { id: 'general', name: 'general', description: 'Company-wide announcements and work-based discussions' },
-        { id: 'random', name: 'random', description: 'Non-work talk and banter' }
-      ]
-    });
-    await newTeam.save();
-    return newTeam.toObject();
+    const teamId = `PULSE-${randomCode}`;
+    const channels = [
+      { id: 'general', name: 'general', description: 'Company-wide announcements and work-based discussions' },
+      { id: 'random', name: 'random', description: 'Non-work talk and banter' }
+    ];
+
+    if (isMongoConnected()) {
+      const newTeam = new Team({
+        id: teamId,
+        name: teamData.name,
+        passcode: teamData.passcode,
+        creatorId: teamData.creatorId,
+        members: [teamData.creatorId],
+        channels
+      });
+      await newTeam.save();
+      return newTeam.toObject();
+    } else {
+      const teams = readData('teams');
+      const newTeam = {
+        id: teamId,
+        name: teamData.name,
+        passcode: teamData.passcode,
+        creatorId: teamData.creatorId,
+        members: [teamData.creatorId],
+        channels,
+        createdAt: new Date().toISOString()
+      };
+      teams.push(newTeam);
+      writeData('teams', teams);
+      return newTeam;
+    }
   },
 
   joinTeam: async (teamId, passcode, userId) => {
-    const team = await Team.findOne({ id: teamId });
-    
-    if (!team) {
-      throw new Error('Team not found. Please verify the Team ID.');
+    if (isMongoConnected()) {
+      const team = await Team.findOne({ id: teamId });
+      if (!team) throw new Error('Team not found. Please verify the Team ID.');
+      if (team.passcode !== passcode) throw new Error('Incorrect passcode. Please try again.');
+      if (team.members.includes(userId)) throw new Error('You are already a member of this team.');
+      
+      team.members.push(userId);
+      await team.save();
+      return team.toObject();
+    } else {
+      const teams = readData('teams');
+      const teamIndex = teams.findIndex(t => t.id === teamId);
+      if (teamIndex === -1) throw new Error('Team not found. Please verify the Team ID.');
+      
+      const team = teams[teamIndex];
+      if (team.passcode !== passcode) throw new Error('Incorrect passcode. Please try again.');
+      if (team.members.includes(userId)) throw new Error('You are already a member of this team.');
+      
+      team.members.push(userId);
+      teams[teamIndex] = team;
+      writeData('teams', teams);
+      return team;
     }
-    
-    if (team.passcode !== passcode) {
-      throw new Error('Incorrect passcode. Please try again.');
-    }
-    
-    if (team.members.includes(userId)) {
-      throw new Error('You are already a member of this team.');
-    }
-    
-    team.members.push(userId);
-    await team.save();
-    return team.toObject();
   },
 
   leaveTeam: async (teamId, userId) => {
-    const team = await Team.findOne({ id: teamId });
-    if (!team) {
-      throw new Error('Team not found.');
-    }
-    if (!team.members.includes(userId)) {
-      throw new Error('You are not a member of this team.');
-    }
-    
-    team.members = team.members.filter(m => m !== userId);
-    if (team.members.length === 0) {
-      await Team.deleteOne({ id: teamId });
-      return null;
-    } else {
-      if (team.creatorId === userId) {
-        team.creatorId = team.members[0];
+    if (isMongoConnected()) {
+      const team = await Team.findOne({ id: teamId });
+      if (!team) throw new Error('Team not found.');
+      if (!team.members.includes(userId)) throw new Error('You are not a member of this team.');
+      
+      team.members = team.members.filter(m => m !== userId);
+      if (team.members.length === 0) {
+        await Team.deleteOne({ id: teamId });
+        return null;
+      } else {
+        if (team.creatorId === userId) {
+          team.creatorId = team.members[0];
+        }
+        await team.save();
       }
-      await team.save();
+      return team.toObject();
+    } else {
+      const teams = readData('teams');
+      const teamIndex = teams.findIndex(t => t.id === teamId);
+      if (teamIndex === -1) throw new Error('Team not found.');
+      
+      const team = teams[teamIndex];
+      if (!team.members.includes(userId)) throw new Error('You are not a member of this team.');
+      
+      team.members = team.members.filter(m => m !== userId);
+      if (team.members.length === 0) {
+        teams.splice(teamIndex, 1);
+        writeData('teams', teams);
+        return null;
+      } else {
+        if (team.creatorId === userId) {
+          team.creatorId = team.members[0];
+        }
+        teams[teamIndex] = team;
+        writeData('teams', teams);
+      }
+      return team;
     }
-    return team.toObject();
   },
 
   updateTeam: async (updatedTeam) => {
-    const result = await Team.updateOne({ id: updatedTeam.id }, { $set: updatedTeam });
-    return result.modifiedCount > 0;
+    if (isMongoConnected()) {
+      const result = await Team.updateOne({ id: updatedTeam.id }, { $set: updatedTeam });
+      return result.modifiedCount > 0;
+    } else {
+      const teams = readData('teams');
+      const index = teams.findIndex(t => t.id === updatedTeam.id);
+      if (index !== -1) {
+        teams[index] = updatedTeam;
+        writeData('teams', teams);
+        return true;
+      }
+      return false;
+    }
   },
 
   getMessages: async (teamId, channelId) => {
-    return await Message.find({ teamId, channelId }).sort({ timestamp: 1 }).lean();
+    if (isMongoConnected()) {
+      return await Message.find({ teamId, channelId }).sort({ timestamp: 1 }).lean();
+    } else {
+      const messages = readData('messages');
+      return messages.filter(m => m.teamId === teamId && m.channelId === channelId);
+    }
   },
 
   createMessage: async (messageData) => {
-    const newMsg = new Message({
-      id: Math.random().toString(36).substr(2, 9),
-      ...messageData
-    });
-    await newMsg.save();
-    return newMsg.toObject();
+    if (isMongoConnected()) {
+      const newMsg = new Message({
+        id: Math.random().toString(36).substr(2, 9),
+        ...messageData
+      });
+      await newMsg.save();
+      return newMsg.toObject();
+    } else {
+      const messages = readData('messages');
+      const newMsg = {
+        id: Math.random().toString(36).substr(2, 9),
+        ...messageData,
+        timestamp: new Date().toISOString()
+      };
+      messages.push(newMsg);
+      writeData('messages', messages);
+      return newMsg;
+    }
   },
 
   createChannel: async (teamId, channelName, description) => {
-    const team = await Team.findOne({ id: teamId });
-    if (!team) throw new Error('Team not found');
-    
     const channelId = channelName.toLowerCase().replace(/\s+/g, '-').trim();
-    
-    if (team.channels.some(c => c.id === channelId)) {
-      throw new Error('Channel already exists');
+
+    if (isMongoConnected()) {
+      const team = await Team.findOne({ id: teamId });
+      if (!team) throw new Error('Team not found');
+      if (team.channels.some(c => c.id === channelId)) {
+        throw new Error('Channel already exists');
+      }
+      
+      const newChannel = { id: channelId, name: channelName.toLowerCase().trim(), description: description || '' };
+      team.channels.push(newChannel);
+      await team.save();
+      return newChannel;
+    } else {
+      const teams = readData('teams');
+      const index = teams.findIndex(t => t.id === teamId);
+      if (index === -1) throw new Error('Team not found');
+      if (teams[index].channels.some(c => c.id === channelId)) {
+        throw new Error('Channel already exists');
+      }
+      
+      const newChannel = { id: channelId, name: channelName.toLowerCase().trim(), description: description || '' };
+      teams[index].channels.push(newChannel);
+      writeData('teams', teams);
+      return newChannel;
     }
-    
-    const newChannel = {
-      id: channelId,
-      name: channelName.toLowerCase().trim(),
-      description: description || ''
-    };
-    
-    team.channels.push(newChannel);
-    await team.save();
-    return newChannel;
   },
 
   updateUser: async (userId, updateData) => {
-    const user = await User.findOne({ id: userId });
-    if (!user) throw new Error('User not found');
-    
-    Object.assign(user, updateData, { updatedAt: new Date() });
-    await user.save();
-    return user.toObject();
+    if (isMongoConnected()) {
+      const user = await User.findOne({ id: userId });
+      if (!user) throw new Error('User not found');
+      Object.assign(user, updateData, { updatedAt: new Date() });
+      await user.save();
+      return user.toObject();
+    } else {
+      const users = readData('users');
+      const index = users.findIndex(u => u.id === userId);
+      if (index === -1) throw new Error('User not found');
+      
+      users[index] = {
+        ...users[index],
+        ...updateData,
+        updatedAt: new Date().toISOString()
+      };
+      writeData('users', users);
+      return users[index];
+    }
   },
 
   getTeamMembers: async (teamId) => {
-    const team = await Team.findOne({ id: teamId }).lean();
-    if (!team) return [];
-    
-    const users = await User.find({ id: { $in: team.members } }).lean();
-    return users.map(({ password, verificationToken, ...u }) => u);
+    if (isMongoConnected()) {
+      const team = await Team.findOne({ id: teamId }).lean();
+      if (!team) return [];
+      const users = await User.find({ id: { $in: team.members } }).lean();
+      return users.map(({ password, verificationToken, ...u }) => u);
+    } else {
+      const teams = readData('teams');
+      const team = teams.find(t => t.id === teamId);
+      if (!team) return [];
+      const users = readData('users');
+      return users
+        .filter(u => team.members.includes(u.id))
+        .map(({ password, verificationToken, ...u }) => u);
+    }
   }
 };
 
