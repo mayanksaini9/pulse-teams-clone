@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="grad-rocket" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <filter id="glow-rocket" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <circle cx="60" cy="60" r="50" fill="url(#grad-rocket)" filter="url(#glow-rocket)" opacity="0.15" />
+  <rect x="15" y="15" width="90" height="90" rx="20" fill="url(#grad-rocket)" stroke="#a78bfa" stroke-width="2" />
+  <g transform="translate(42, 32)">
+    <path d="M18 0 C 24 10, 24 25, 18 35 C 12 35, 12 10, 18 0 Z" fill="#ffffff" />
+    <path d="M18 35 L12 45 L18 42 L24 45 Z" fill="#f59e0b" />
+    <path d="M10 25 C 5 28, 5 35, 8 40 L12 30 Z" fill="#e0e7ff" />
+    <path d="M26 25 C 31 28, 31 35, 28 40 L24 30 Z" fill="#e0e7ff" />
+  </g>
+  <text x="60" y="100" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-weight="900" font-size="14" letter-spacing="1">SHIP IT</text>
+</svg>

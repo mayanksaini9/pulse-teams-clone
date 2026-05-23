@@ -1,0 +1,442 @@
+import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { Mail, Lock, User, ArrowRight, Activity, ShieldCheck, Eye, EyeOff } from 'lucide-react';
+
+const Auth = () => {
+  const { login, register } = useAuth();
+  const [isLogin, setIsLogin] = useState(true);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setSubmitting(true);
+
+    try {
+      if (isLogin) {
+        await login(email, password);
+        setSuccess('Logged in successfully! Redirecting...');
+      } else {
+        if (!name.trim()) {
+          throw new Error('Please enter your name.');
+        }
+        await register(name, email, password);
+        setSuccess('Account created successfully! Redirecting...');
+      }
+    } catch (err) {
+      setError(err.message || 'An error occurred. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleAuthMode = () => {
+    setIsLogin(!isLogin);
+    setError('');
+    setSuccess('');
+    setName('');
+    setEmail('');
+    setPassword('');
+  };
+
+  return (
+    <div className="auth-container">
+      {/* Background glowing blobs */}
+      <div className="glow-blob blob-1"></div>
+      <div className="glow-blob blob-2"></div>
+      <div className="glow-blob blob-3"></div>
+
+      <div className="auth-card glass-panel">
+        <div className="auth-header">
+          <div className="logo-area">
+            <div className="logo-icon-wrapper">
+              <Activity className="logo-icon" size={24} />
+            </div>
+            <span className="logo-text text-gradient">PULSE</span>
+          </div>
+          <h1>{isLogin ? 'Welcome Back' : 'Create Account'}</h1>
+          <p className="auth-subtitle">
+            {isLogin 
+              ? 'Connect with your team using the next-gen workspace.' 
+              : 'Join Pulse and collaborate with high fidelity sound and style.'}
+          </p>
+        </div>
+
+        {error && (
+          <div className="auth-alert error">
+            <span className="alert-message">{error}</span>
+          </div>
+        )}
+
+        {success && (
+          <div className="auth-alert success">
+            <ShieldCheck size={18} />
+            <span className="alert-message">{success}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="auth-form">
+          {!isLogin && (
+            <div className="input-group">
+              <label htmlFor="name">Full Name</label>
+              <div className="input-wrapper">
+                <User className="input-icon" size={18} />
+                <input
+                  type="text"
+                  id="name"
+                  className="input-field-custom"
+                  placeholder="John Doe"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={submitting}
+                  required
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="input-group">
+            <label htmlFor="email">Work Email</label>
+            <div className="input-wrapper">
+              <Mail className="input-icon" size={18} />
+              <input
+                type="email"
+                id="email"
+                className="input-field-custom"
+                placeholder="name@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={submitting}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="input-group">
+            <div className="label-row">
+              <label htmlFor="password">Password</label>
+              {isLogin && <a href="#" className="forgot-link">Forgot?</a>}
+            </div>
+            <div className="input-wrapper">
+              <Lock className="input-icon" size={18} />
+              <input
+                type={showPassword ? "text" : "password"}
+                id="password"
+                className="input-field-custom"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={submitting}
+                required
+              />
+              <button 
+                type="button" 
+                className="eye-btn" 
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex="-1"
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            className="glow-btn submit-btn" 
+            disabled={submitting}
+          >
+            {submitting ? (
+              <span className="loader"></span>
+            ) : (
+              <>
+                <span>{isLogin ? 'Sign In' : 'Create Account'}</span>
+                <ArrowRight size={18} />
+              </>
+            )}
+          </button>
+        </form>
+
+        <div className="auth-footer">
+          <p>
+            {isLogin ? "Don't have an account?" : "Already have an account?"}{' '}
+            <button type="button" className="toggle-mode-btn" onClick={toggleAuthMode}>
+              {isLogin ? 'Sign up' : 'Sign in'}
+            </button>
+          </p>
+        </div>
+      </div>
+
+      {/* Decorative styling specifically for this page */}
+      <style>{`
+        .auth-container {
+          min-height: 100vh;
+          width: 100vw;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: var(--bg-deep);
+          position: relative;
+          overflow: hidden;
+          padding: 24px;
+        }
+
+        /* Ambient Glowing Blobs */
+        .glow-blob {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(120px);
+          opacity: 0.15;
+          z-index: 0;
+          pointer-events: none;
+        }
+
+        .blob-1 {
+          width: 400px;
+          height: 400px;
+          background: var(--accent-primary);
+          top: -100px;
+          left: -100px;
+          animation: glowPulse 8s infinite alternate;
+        }
+
+        .blob-2 {
+          width: 500px;
+          height: 500px;
+          background: var(--accent-pink);
+          bottom: -150px;
+          right: -100px;
+          animation: glowPulse 10s infinite alternate-reverse;
+        }
+
+        .blob-3 {
+          width: 300px;
+          height: 300px;
+          background: var(--accent-secondary);
+          top: 40%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          filter: blur(140px);
+          opacity: 0.1;
+        }
+
+        .auth-card {
+          width: 100%;
+          max-width: 460px;
+          padding: 40px;
+          border-radius: var(--radius-lg);
+          z-index: 10;
+          animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .auth-header {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          margin-bottom: 30px;
+        }
+
+        .logo-area {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 20px;
+        }
+
+        .logo-icon-wrapper {
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
+          background: var(--accent-gradient);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .logo-icon {
+          stroke-width: 2.5;
+        }
+
+        .logo-text {
+          font-family: var(--font-display);
+          font-size: 22px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+        }
+
+        .auth-header h1 {
+          font-family: var(--font-display);
+          font-size: 28px;
+          font-weight: 700;
+          color: var(--text-primary);
+          margin-bottom: 8px;
+        }
+
+        .auth-subtitle {
+          font-size: 14px;
+          color: var(--text-secondary);
+          line-height: 1.5;
+        }
+
+        .auth-alert {
+          padding: 12px 16px;
+          border-radius: var(--radius-sm);
+          font-size: 13.5px;
+          font-weight: 500;
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          animation: slideUp 0.3s ease;
+        }
+
+        .auth-alert.error {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.2);
+          color: #fca5a5;
+        }
+
+        .auth-alert.success {
+          background: rgba(16, 185, 129, 0.1);
+          border: 1px solid rgba(16, 185, 129, 0.2);
+          color: #a7f3d0;
+        }
+
+        .auth-form {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .label-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .forgot-link {
+          font-size: 12.5px;
+          color: var(--accent-primary);
+          text-decoration: none;
+          font-weight: 500;
+        }
+
+        .forgot-link:hover {
+          color: var(--accent-secondary);
+          text-decoration: underline;
+        }
+
+        .input-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .input-icon {
+          position: absolute;
+          left: 14px;
+          color: var(--text-muted);
+          pointer-events: none;
+          transition: color 0.2s ease;
+        }
+
+        .input-field-custom {
+          width: 100%;
+          background: rgba(10, 11, 16, 0.4);
+          border: 1px solid var(--border-light);
+          border-radius: var(--radius-sm);
+          color: var(--text-primary);
+          padding: 13px 14px 13px 44px;
+          font-size: 14px;
+          font-family: var(--font-sans);
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .input-field-custom:focus {
+          outline: none;
+          border-color: var(--accent-primary);
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+          background: rgba(10, 11, 16, 0.7);
+        }
+
+        .input-field-custom:focus + .input-icon {
+          color: var(--accent-primary);
+        }
+
+        .eye-btn {
+          position: absolute;
+          right: 14px;
+          background: none;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .eye-btn:hover {
+          color: var(--text-secondary);
+        }
+
+        .submit-btn {
+          margin-top: 6px;
+          width: 100%;
+          padding: 13px;
+          border-radius: var(--radius-sm);
+          font-size: 15px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+
+        .auth-footer {
+          margin-top: 24px;
+          text-align: center;
+          font-size: 13.5px;
+          color: var(--text-secondary);
+        }
+
+        .toggle-mode-btn {
+          background: none;
+          border: none;
+          color: var(--accent-primary);
+          font-weight: 600;
+          cursor: pointer;
+          font-size: 13.5px;
+        }
+
+        .toggle-mode-btn:hover {
+          color: var(--accent-secondary);
+          text-decoration: underline;
+        }
+
+        /* Spinner/Loader */
+        .loader {
+          width: 20px;
+          height: 20px;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-radius: 50%;
+          border-top-color: white;
+          animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default Auth;

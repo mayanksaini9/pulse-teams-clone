@@ -1,0 +1,569 @@
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+const database = require('./database');
+
+const app = express();
+const server = http.createServer(app);
+
+// Environment variables
+const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'pulse_teams_super_secret_key_2026';
+
+// Middleware
+app.use(cors({
+  origin: 'http://localhost:5173', // Vite dev server
+  credentials: true
+}));
+app.use(express.json());
+
+// Search GIFs proxy endpoint
+app.get('/api/gifs/search', async (req, res) => {
+  const query = req.query.q || '';
+  if (!query) {
+    return res.json([]);
+  }
+  
+  // List of Giphy keys to try in fallback order
+  const keys = [
+    '3eP2Alml557CgSRGseLtTJz29824q4iZ', // React SDK public key
+    '0UTRbFco6AZLBWOCy87zG96s4f4r39V3', // Giphy Android SDK Key
+    'dc6zaTOxFJmzC',                   // Legacy key
+    'LiyvJg9tGxV4ZFi78V1b2n3x2S1Fw92D'
+  ];
+
+  for (const key of keys) {
+    try {
+      const url = `https://api.giphy.com/v1/gifs/search?api_key=${key}&q=${encodeURIComponent(query)}&limit=16&rating=g`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.data && data.data.length > 0) {
+          const formatted = data.data.map(g => ({
+            name: g.title,
+            url: g.images.fixed_height.url
+          }));
+          return res.json(formatted);
+        }
+      }
+    } catch (e) {
+      console.warn(`GIPHY API failed with key ${key}:`, e.message);
+    }
+  }
+
+  // If GIPHY keys fail, query public Tenor API (which does not require a key for basic search endpoints or has public keys)
+  try {
+    const tenorRes = await fetch(`https://g.tenor.com/v1/search?q=${encodeURIComponent(query)}&key=LIVDTRZGLBI2&limit=16`);
+    if (tenorRes.ok) {
+      const data = await tenorRes.json();
+      if (data && data.results && data.results.length > 0) {
+        const formatted = data.results.map(g => ({
+          name: g.title || 'Tenor GIF',
+          url: g.media[0].gif.url
+        }));
+        return res.json(formatted);
+      }
+    }
+  } catch (e) {
+    console.warn('Tenor API fallback failed:', e.message);
+  }
+
+  // Final fallback: empty array
+  res.json([]);
+});
+
+// Auth Middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer <token>
+
+  if (!token) {
+    return res.status(401).json({ message: 'Access denied. No token provided.' });
+  }
+
+  try {
+    const verified = jwt.verify(token, JWT_SECRET);
+    req.user = verified;
+    next();
+  } catch (error) {
+    res.status(403).json({ message: 'Invalid token.' });
+  }
+};
+
+// --- AUTHENTICATION ROUTES ---
+
+// Register
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Please fill in all fields.' });
+    }
+
+    // Check if user already exists
+    const existingUser = database.findUserByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists.' });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Save user
+    const newUser = database.createUser({
+      name,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      avatarColor: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}` // Random modern color for user avatar
+    });
+
+    // Generate JWT token
+    const token = jwt.sign({ id: newUser.id, name: newUser.name, email: newUser.email }, JWT_SECRET, { expiresIn: '7d' });
+
+    // Respond with user and token (excluding password)
+    const { password: _, ...userWithoutPassword } = newUser;
+    res.status(201).json({
+      user: userWithoutPassword,
+      token
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Please enter all fields.' });
+    }
+
+    // Check user exists
+    const user = database.findUserByEmail(email);
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid credentials.' });
+    }
+
+    // Verify password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid credentials.' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+
+    // Respond (excluding password)
+    const { password: _, ...userWithoutPassword } = user;
+    res.status(200).json({
+      user: userWithoutPassword,
+      token
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Get Current User
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+  try {
+    const user = database.findUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+    const { password: _, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
+
+// --- TEAM ROUTES ---
+
+// Create a Team
+app.post('/api/teams/create', authenticateToken, (req, res) => {
+  try {
+    const { name, passcode } = req.body;
+
+    if (!name || !passcode) {
+      return res.status(400).json({ message: 'Team name and passcode are required.' });
+    }
+
+    const newTeam = database.createTeam({
+      name,
+      passcode,
+      creatorId: req.user.id
+    });
+
+    res.status(201).json(newTeam);
+  } catch (error) {
+    console.error('Error creating team:', error);
+    res.status(500).json({ message: 'Server error creating team.' });
+  }
+});
+
+// Join a Team
+app.post('/api/teams/join', authenticateToken, (req, res) => {
+  try {
+    const { teamId, passcode } = req.body;
+
+    if (!teamId || !passcode) {
+      return res.status(400).json({ message: 'Team ID and passcode are required.' });
+    }
+
+    const team = database.joinTeam(teamId.toUpperCase().trim(), passcode.trim(), req.user.id);
+    res.status(200).json(team);
+  } catch (error) {
+    console.error('Error joining team:', error);
+    res.status(400).json({ message: error.message || 'Error joining team.' });
+  }
+});
+
+// Leave a Team
+app.post('/api/teams/:teamId/leave', authenticateToken, (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const team = database.leaveTeam(teamId, req.user.id);
+    res.status(200).json({ message: 'Successfully left the team.', teamId });
+  } catch (error) {
+    console.error('Error leaving team:', error);
+    res.status(400).json({ message: error.message || 'Error leaving team.' });
+  }
+});
+
+// Get User's Teams
+app.get('/api/teams', authenticateToken, (req, res) => {
+  try {
+    const userTeams = database.findTeamsForUser(req.user.id);
+    res.status(200).json(userTeams);
+  } catch (error) {
+    console.error('Error fetching user teams:', error);
+    res.status(500).json({ message: 'Server error fetching teams.' });
+  }
+});
+
+// Get Channel Messages
+app.get('/api/teams/:teamId/channels/:channelId/messages', authenticateToken, (req, res) => {
+  try {
+    const { teamId, channelId } = req.params;
+    
+    // Verify member permissions
+    const team = database.findTeamById(teamId);
+    if (!team || !team.members.includes(req.user.id)) {
+      return res.status(403).json({ message: 'Forbidden. You are not a member of this team.' });
+    }
+    
+    const messages = database.getMessages(teamId, channelId);
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ message: 'Server error fetching messages.' });
+  }
+});
+
+// Get Team Members
+app.get('/api/teams/:teamId/members', authenticateToken, (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const team = database.findTeamById(teamId);
+    if (!team) {
+      return res.status(404).json({ message: 'Team not found.' });
+    }
+    if (!team.members.includes(req.user.id)) {
+      return res.status(403).json({ message: 'Forbidden. You are not a member of this team.' });
+    }
+    const members = database.getTeamMembers(teamId);
+    res.status(200).json(members);
+  } catch (error) {
+    console.error('Error fetching team members:', error);
+    res.status(500).json({ message: 'Server error fetching team members.' });
+  }
+});
+
+// Create Channel in Team
+app.post('/api/teams/:teamId/channels', authenticateToken, (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { name, description } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: 'Channel name is required.' });
+    }
+
+    const team = database.findTeamById(teamId);
+    if (!team) {
+      return res.status(404).json({ message: 'Team not found.' });
+    }
+    if (!team.members.includes(req.user.id)) {
+      return res.status(403).json({ message: 'Forbidden. You are not a member of this team.' });
+    }
+
+    const newChannel = database.createChannel(teamId, name, description);
+    
+    // Broadcast to team room via Socket.io
+    io.to(teamId).emit('channel_created', { teamId, channel: newChannel });
+
+    res.status(201).json(newChannel);
+  } catch (error) {
+    console.error('Error creating channel:', error);
+    res.status(400).json({ message: error.message || 'Server error creating channel.' });
+  }
+});
+
+// Update User Profile
+app.put('/api/users/profile', authenticateToken, (req, res) => {
+  try {
+    const { name, email, avatarColor, statusMessage, onlineStatus, avatarUrl, phone, jobTitle, department } = req.body;
+    
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (avatarColor) updateData.avatarColor = avatarColor;
+    if (statusMessage !== undefined) updateData.statusMessage = statusMessage;
+    if (onlineStatus) updateData.onlineStatus = onlineStatus;
+    if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
+    if (phone !== undefined) updateData.phone = phone;
+    if (jobTitle !== undefined) updateData.jobTitle = jobTitle;
+    if (department !== undefined) updateData.department = department;
+
+    const updatedUser = database.updateUser(req.user.id, updateData);
+    const { password, ...safeUser } = updatedUser;
+    
+    // Broadcast user profile updates
+    io.emit('user_profile_updated', safeUser);
+
+    res.status(200).json(safeUser);
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(400).json({ message: error.message || 'Server error updating profile.' });
+  }
+});
+
+
+// --- REALTIME SOCKET.IO SETUP ---
+const io = socketIo(server, {
+  cors: {
+    origin: 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+const activeCalls = {};
+
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  // Join a team room
+  socket.on('join_team', ({ teamId }) => {
+    socket.join(teamId);
+    console.log(`Socket ${socket.id} joined team room: ${teamId}`);
+  });
+
+  // Leave a team room
+  socket.on('leave_team', ({ teamId }) => {
+    socket.leave(teamId);
+    console.log(`Socket ${socket.id} left team room: ${teamId}`);
+  });
+
+  // Join a channel room
+  socket.on('join_channel', ({ teamId, channelId }) => {
+    const roomName = `${teamId}_${channelId}`;
+    socket.join(roomName);
+    console.log(`Socket ${socket.id} joined room: ${roomName}`);
+  });
+
+  // Leave a channel room
+  socket.on('leave_channel', ({ teamId, channelId }) => {
+    const roomName = `${teamId}_${channelId}`;
+    socket.leave(roomName);
+    console.log(`Socket ${socket.id} left room: ${roomName}`);
+  });
+
+  // Handle incoming message and broadcast to others in room
+  socket.on('send_message', (messageData) => {
+    try {
+      const { teamId, channelId, text, senderId, senderName, senderAvatarColor, senderAvatarUrl, isMedia, isAttachment } = messageData;
+      
+      if (!teamId || !channelId || !text || !senderId) {
+        return;
+      }
+      
+      const newMsg = database.createMessage({
+        teamId,
+        channelId,
+        text,
+        senderId,
+        senderName,
+        senderAvatarColor,
+        senderAvatarUrl: senderAvatarUrl || '',
+        isMedia: !!isMedia,
+        isAttachment: !!isAttachment
+      });
+      
+      const roomName = `${teamId}_${channelId}`;
+      io.to(roomName).emit('receive_message', newMsg);
+    } catch (err) {
+      console.error('Socket error in send_message:', err);
+    }
+  });
+
+  // --- WEBRTC CALL SIGNALING & NOTIFICATIONS ---
+
+  socket.on('start_call', ({ teamId, channelId, channelName, userName, callType }) => {
+    activeCalls[channelId] = {
+      teamId,
+      channelId,
+      channelName,
+      userName,
+      callType,
+      screenSharer: null
+    };
+
+    const teamChannelRoom = `${teamId}_${channelId}`;
+    // Broadcast incoming call event to everyone else in this channel
+    socket.to(teamChannelRoom).emit('incoming_call', {
+      teamId,
+      channelId,
+      channelName,
+      userName,
+      callType,
+      callerSocketId: socket.id
+    });
+
+    console.log(`Call notification sent for room: ${teamChannelRoom} (Type: ${callType})`);
+  });
+  
+  socket.on('join_call_room', ({ teamId, channelId, userName, userAvatarColor, userAvatarUrl }) => {
+    const callRoomName = `call_${teamId}_${channelId}`;
+    socket.join(callRoomName);
+    
+    // Get all other participants in the call room
+    const clients = io.sockets.adapter.rooms.get(callRoomName);
+    const otherUsers = [];
+    if (clients) {
+      clients.forEach((clientId) => {
+        if (clientId !== socket.id) {
+          otherUsers.push(clientId);
+        }
+      });
+    }
+    
+    // Notify the joining user of other participants
+    socket.emit('call_room_users', otherUsers);
+    
+    // Broadcast to others in the room that a new user joined
+    socket.to(callRoomName).emit('user_joined_call', {
+      socketId: socket.id,
+      userName,
+      userAvatarColor,
+      userAvatarUrl
+    });
+
+    // Check if there is an active screen sharer in the room already
+    if (activeCalls[channelId] && activeCalls[channelId].screenSharer) {
+      socket.emit('screen_share_owner', {
+        ownerSocketId: activeCalls[channelId].screenSharer.socketId,
+        ownerName: activeCalls[channelId].screenSharer.userName
+      });
+    }
+    
+    console.log(`Socket ${socket.id} joined call room: ${callRoomName}`);
+  });
+
+  socket.on('send_call_signal', ({ targetSocketId, signal }) => {
+    io.to(targetSocketId).emit('receive_call_signal', {
+      senderSocketId: socket.id,
+      signal
+    });
+  });
+
+  socket.on('share_screen_started', ({ teamId, channelId, userName }) => {
+    const callRoomName = `call_${teamId}_${channelId}`;
+    if (activeCalls[channelId]) {
+      activeCalls[channelId].screenSharer = { socketId: socket.id, userName };
+    }
+    socket.to(callRoomName).emit('screen_share_owner', {
+      ownerSocketId: socket.id,
+      ownerName: userName
+    });
+    console.log(`Screen share started in channel ${channelId} by ${userName} (Socket: ${socket.id})`);
+  });
+
+  socket.on('share_screen_stopped', ({ teamId, channelId }) => {
+    const callRoomName = `call_${teamId}_${channelId}`;
+    if (activeCalls[channelId] && activeCalls[channelId].screenSharer?.socketId === socket.id) {
+      activeCalls[channelId].screenSharer = null;
+    }
+    io.to(callRoomName).emit('screen_share_cleared');
+    console.log(`Screen share cleared in channel ${channelId}`);
+  });
+
+  socket.on('leave_call_room', ({ teamId, channelId }) => {
+    const callRoomName = `call_${teamId}_${channelId}`;
+    socket.leave(callRoomName);
+    
+    // If the leaving user was screen sharing, clean it up
+    if (activeCalls[channelId] && activeCalls[channelId].screenSharer?.socketId === socket.id) {
+      activeCalls[channelId].screenSharer = null;
+      socket.to(callRoomName).emit('screen_share_cleared');
+    }
+
+    socket.to(callRoomName).emit('user_left_call', { socketId: socket.id });
+    console.log(`Socket ${socket.id} left call room: ${callRoomName}`);
+
+    // If call room is empty, clear active call state
+    const clients = io.sockets.adapter.rooms.get(callRoomName);
+    if (!clients || clients.size === 0) {
+      delete activeCalls[channelId];
+    }
+  });
+
+  socket.on('disconnect', () => {
+    // Notify all rooms the socket was in that they left calls
+    const rooms = Array.from(socket.rooms);
+    rooms.forEach((room) => {
+      if (room.startsWith('call_')) {
+        const parts = room.split('_');
+        const channelId = parts.slice(2).join('_');
+        
+        if (activeCalls[channelId] && activeCalls[channelId].screenSharer?.socketId === socket.id) {
+          activeCalls[channelId].screenSharer = null;
+          socket.to(room).emit('screen_share_cleared');
+        }
+
+        socket.to(room).emit('user_left_call', { socketId: socket.id });
+        
+        // Clear active call state if empty
+        const clients = io.sockets.adapter.rooms.get(room);
+        if (!clients || clients.size === 0) {
+          delete activeCalls[channelId];
+        }
+      }
+    });
+    console.log('User disconnected:', socket.id);
+  });
+});
+
+// Serve frontend in production (optional, we'll keep dev server for now)
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/dist')));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+  });
+}
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
