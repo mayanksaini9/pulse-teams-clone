@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+const { sendVerificationEmail } = require('./email');
 
 // --- JSON File Fallback Setup ---
 const DATA_DIR = path.join(__dirname, 'data');
@@ -123,6 +124,11 @@ const database = {
     const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
     const cleanEmail = userData.email.toLowerCase();
     
+    // Trigger real email send (runs in background so it doesn't block request)
+    sendVerificationEmail(cleanEmail, verificationToken).catch(err => {
+      console.error('Failed to send verification email in background:', err);
+    });
+
     if (isMongoConnected()) {
       const newUser = new User({
         id: Math.random().toString(36).substr(2, 9),
