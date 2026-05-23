@@ -5,15 +5,34 @@ const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587');
 const SMTP_USER = process.env.SMTP_USER; // Your Gmail / SMTP email
 const SMTP_PASS = process.env.SMTP_PASS; // Your Gmail App Password / SMTP password
 
-const transporter = SMTP_USER && SMTP_PASS ? nodemailer.createTransport({
-  host: SMTP_HOST,
-  port: SMTP_PORT,
-  secure: SMTP_PORT === 465, // true for 465, false for other ports
-  auth: {
-    user: SMTP_USER,
-    pass: SMTP_PASS
-  }
-}) : null;
+let transporter = null;
+
+if (SMTP_USER && SMTP_PASS) {
+  const isGmail = SMTP_USER.toLowerCase().endsWith('@gmail.com') || SMTP_HOST.includes('gmail.com');
+  
+  const transportConfig = isGmail 
+    ? {
+        service: 'gmail',
+        auth: {
+          user: SMTP_USER,
+          pass: SMTP_PASS
+        }
+      }
+    : {
+        host: SMTP_HOST,
+        port: SMTP_PORT,
+        secure: SMTP_PORT === 465, // true for 465, false for 587
+        auth: {
+          user: SMTP_USER,
+          pass: SMTP_PASS
+        },
+        tls: {
+          rejectUnauthorized: false // bypass SSL validation issues
+        }
+      };
+
+  transporter = nodemailer.createTransport(transportConfig);
+}
 
 const sendVerificationEmail = async (toEmail, code) => {
   if (!transporter) {
