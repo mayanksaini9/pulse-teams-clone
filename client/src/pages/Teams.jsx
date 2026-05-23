@@ -27,8 +27,52 @@ const Teams = () => {
     sendMessage,
     members,
     leaveTeam,
-    socket
   } = useTeams();
+
+  const themeColors = {
+    default: {
+      '--accent-primary': '#6366f1',
+      '--accent-secondary': '#8b5cf6',
+      '--accent-gradient': 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%)',
+      '--accent-gradient-hover': 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #c084fc 100%)',
+    },
+    lavender: {
+      '--accent-primary': '#a855f7',
+      '--accent-secondary': '#c084fc',
+      '--accent-gradient': 'linear-gradient(135deg, #a855f7 0%, #c084fc 50%, #e879f9 100%)',
+      '--accent-gradient-hover': 'linear-gradient(135deg, #9333ea 0%, #a855f7 50%, #d946ef 100%)',
+    },
+    emerald: {
+      '--accent-primary': '#10b981',
+      '--accent-secondary': '#34d399',
+      '--accent-gradient': 'linear-gradient(135deg, #10b981 0%, #059669 50%, #34d399 100%)',
+      '--accent-gradient-hover': 'linear-gradient(135deg, #059669 0%, #047857 50%, #10b981 100%)',
+    },
+    sunset: {
+      '--accent-primary': '#f97316',
+      '--accent-secondary': '#f43f5e',
+      '--accent-gradient': 'linear-gradient(135deg, #f97316 0%, #ec4899 50%, #f43f5e 100%)',
+      '--accent-gradient-hover': 'linear-gradient(135deg, #ea580c 0%, #db2777 50%, #e11d48 100%)',
+    },
+    midnight: {
+      '--accent-primary': '#0ea5e9',
+      '--accent-secondary': '#2563eb',
+      '--accent-gradient': 'linear-gradient(135deg, #0ea5e9 0%, #3b82f6 50%, #2563eb 100%)',
+      '--accent-gradient-hover': 'linear-gradient(135deg, #0284c7 0%, #2563eb 50%, #1d4ed8 100%)',
+    },
+    crimson: {
+      '--accent-primary': '#ef4444',
+      '--accent-secondary': '#dc2626',
+      '--accent-gradient': 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #991b1b 100%)',
+      '--accent-gradient-hover': 'linear-gradient(135deg, #dc2626 0%, #b91c1c 50%, #7f1d1d 100%)',
+    }
+  };
+
+  const selectedTheme = currentTeam?.theme || 'default';
+  const activeStyle = themeColors[selectedTheme] || themeColors.default;
+
+  const admins = currentTeam?.admins || (currentTeam ? [currentTeam.creatorId] : []);
+  const currentUserIsAdmin = currentTeam && user ? admins.includes(user.id) : false;
 
   const [activeTab, setActiveTab] = useState('teams');
   const [inCall, setInCall] = useState(false);
@@ -89,6 +133,7 @@ const Teams = () => {
   const [copied, setCopied] = useState(false);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [showPasscodeReveal, setShowPasscodeReveal] = useState(false);
+  const [showThemePicker, setShowThemePicker] = useState(false);
 
   // Chat message states
   const [inputText, setInputText] = useState('');
@@ -705,6 +750,109 @@ const Teams = () => {
     );
   };
 
+  // Socket listeners for Admin operations and Theme synchronization
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleThemeUpdate = ({ teamId, theme }) => {
+      if (currentTeam && currentTeam.id === teamId) {
+        setCurrentTeam(prev => ({ ...prev, theme }));
+      }
+    };
+
+    const handleMemberKick = ({ teamId, userId }) => {
+      if (userId === user.id) {
+        alert(`You have been removed from the team: ${teamId}.`);
+        window.location.reload();
+      }
+    };
+
+    const handleTeamUpdate = ({ teamId }) => {
+      if (currentTeam && currentTeam.id === teamId) {
+        window.location.reload();
+      }
+    };
+
+    socket.on('team_theme_updated', handleThemeUpdate);
+    socket.on('member_kicked', handleMemberKick);
+    socket.on('team_updated', handleTeamUpdate);
+
+    return () => {
+      socket.off('team_theme_updated', handleThemeUpdate);
+      socket.off('member_kicked', handleMemberKick);
+      socket.off('team_updated', handleTeamUpdate);
+    };
+  }, [socket, currentTeam, user]);
+
+  const handlePromoteAdmin = async (memberId) => {
+    if (!window.confirm("Are you sure you want to promote this member to Admin?")) return;
+    try {
+      const res = await fetch(`/api/teams/${currentTeam.id}/promote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId: memberId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        window.location.reload();
+      } else {
+        alert(data.message || 'Failed to promote member.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error promoting member.');
+    }
+  };
+
+  const handleKickMember = async (memberId) => {
+    if (!window.confirm("Are you sure you want to remove this member from the team?")) return;
+    try {
+      const res = await fetch(`/api/teams/${currentTeam.id}/kick`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId: memberId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        window.location.reload();
+      } else {
+        alert(data.message || 'Failed to remove member.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error removing member.');
+    }
+  };
+
+  const handleThemeChange = async (themeName) => {
+    try {
+      const res = await fetch(`/api/teams/${currentTeam.id}/theme`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ theme: themeName })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowThemePicker(false);
+      } else {
+        alert(data.message || 'Failed to change theme.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // Helper to render chat message content
   const renderMessageContent = (msg) => {
     if (msg.isMedia) {
@@ -797,7 +945,7 @@ const Teams = () => {
   };
 
   return (
-    <div className="app-container">
+    <div className="app-container" style={activeStyle}>
       {/* Real-time Incoming Call Ring Toast */}
       {incomingCallAlert && (
         <div 
@@ -1199,6 +1347,78 @@ const Teams = () => {
                     {showPasscodeReveal ? <EyeOff size={12} className="eye-icon" /> : <Eye size={12} className="eye-icon" />}
                   </div>
                 </div>
+
+                {currentUserIsAdmin && (
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      className={`header-btn ${showThemePicker ? 'active' : ''}`} 
+                      title="Change Chat Theme"
+                      onClick={() => setShowThemePicker(!showThemePicker)}
+                      style={{
+                        color: showThemePicker ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        borderColor: showThemePicker ? 'var(--accent-primary)' : 'var(--border-light)'
+                      }}
+                    >
+                      <Sparkles size={18} />
+                    </button>
+                    {showThemePicker && (
+                      <div className="glass-panel theme-dropdown animate-fade" style={{
+                        position: 'absolute',
+                        top: '50px',
+                        right: '0',
+                        width: '200px',
+                        borderRadius: '12px',
+                        padding: '12px',
+                        zIndex: 100,
+                        boxShadow: 'var(--shadow-lg)',
+                        background: 'rgba(15, 17, 26, 0.95)',
+                        backdropFilter: 'blur(20px)',
+                        border: '1px solid var(--border-light)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>SELECT THEME</span>
+                        {Object.keys(themeColors).map((themeName) => {
+                          const isSelected = selectedTheme === themeName;
+                          return (
+                            <button
+                              key={themeName}
+                              type="button"
+                              onClick={() => handleThemeChange(themeName)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: 'none',
+                                borderRadius: '8px',
+                                background: isSelected ? 'rgba(255,255,255,0.06)' : 'transparent',
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                transition: 'all 0.2s ease',
+                                textAlign: 'left'
+                              }}
+                              className="theme-item-hover"
+                            >
+                              <div style={{
+                                width: '12px',
+                                height: '12px',
+                                borderRadius: '50%',
+                                background: themeColors[themeName]['--accent-gradient']
+                              }} />
+                              <span style={{ textTransform: 'capitalize', fontWeight: isSelected ? '600' : '400' }}>
+                                {themeName}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <button 
                   className={`header-btn ${showMembersPanel ? 'active' : ''}`} 
@@ -1627,36 +1847,102 @@ const Teams = () => {
                     </button>
                   </div>
                   <div className="members-list" style={{ overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {members.map(member => (
-                      <div key={member.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                        {renderAvatar(member, '32px', '8px', '13px')}
-                        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', lineHeight: '1.2' }}>
-                            <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{member.name}</span>
-                            {member.id === currentTeam.creatorId && (
-                              <span style={{ fontSize: '8px', background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.25)', color: '#a5b4fc', padding: '0px 4px', borderRadius: '4px', marginLeft: '6px', flexShrink: 0 }}>Owner</span>
+                    {members.map(member => {
+                      const admins = currentTeam.admins || [currentTeam.creatorId];
+                      const isMemberAdmin = admins.includes(member.id);
+                      const currentUserIsAdmin = admins.includes(user.id);
+                      
+                      return (
+                        <div key={member.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', width: '100%' }}>
+                          {renderAvatar(member, '32px', '8px', '13px')}
+                          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flexGrow: 1 }}>
+                            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', lineHeight: '1.2', flexWrap: 'wrap', gap: '4px' }}>
+                              <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{member.name}</span>
+                              {member.id === currentTeam.creatorId ? (
+                                <span style={{ fontSize: '8px', background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.25)', color: '#a5b4fc', padding: '0px 4px', borderRadius: '4px', flexShrink: 0 }}>Owner</span>
+                              ) : isMemberAdmin ? (
+                                <span style={{ fontSize: '8px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.25)', color: '#a7f3d0', padding: '0px 4px', borderRadius: '4px', flexShrink: 0 }}>Admin</span>
+                              ) : null}
+                            </span>
+                            
+                            {/* Member contact & details */}
+                            {(member.jobTitle || member.department) && (
+                              <span style={{ fontSize: '10.5px', color: 'var(--accent-primary)', marginTop: '2px', fontWeight: 500 }}>
+                                {member.jobTitle || ''} {member.department ? `(${member.department})` : ''}
+                              </span>
                             )}
-                          </span>
-                          
-                          {/* Member contact & details */}
-                          {(member.jobTitle || member.department) && (
-                            <span style={{ fontSize: '10.5px', color: 'var(--accent-primary)', marginTop: '2px', fontWeight: 500 }}>
-                              {member.jobTitle || ''} {member.department ? `(${member.department})` : ''}
-                            </span>
-                          )}
 
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginTop: '2px' }}>
-                            {member.statusMessage || member.email}
-                          </span>
-
-                          {member.phone && (
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                              📞 {member.phone}
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                              {member.statusMessage || member.email}
                             </span>
+
+                            {member.phone && (
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                📞 {member.phone}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Admin Actions */}
+                          {currentUserIsAdmin && member.id !== user.id && (
+                            <div style={{ display: 'flex', gap: '4px', alignSelf: 'center', flexShrink: 0, marginLeft: '6px' }}>
+                              {!isMemberAdmin && (
+                                <button
+                                  onClick={() => handlePromoteAdmin(member.id)}
+                                  title="Promote to Admin"
+                                  style={{
+                                    background: 'rgba(16, 185, 129, 0.1)',
+                                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                                    borderRadius: '4px',
+                                    color: '#34d399',
+                                    padding: '4px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(16, 185, 129, 0.25)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)';
+                                  }}
+                                >
+                                  <Shield size={12} />
+                                </button>
+                              )}
+                              {(member.id !== currentTeam.creatorId && (!isMemberAdmin || user.id === currentTeam.creatorId)) && (
+                                <button
+                                  onClick={() => handleKickMember(member.id)}
+                                  title="Remove from Team"
+                                  style={{
+                                    background: 'rgba(239, 68, 68, 0.1)',
+                                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                                    borderRadius: '4px',
+                                    color: '#fca5a5',
+                                    padding: '4px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                                  }}
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </aside>
               )}

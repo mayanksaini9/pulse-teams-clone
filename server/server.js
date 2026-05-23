@@ -331,6 +331,107 @@ app.post('/api/teams/:teamId/join-invite', authenticateToken, async (req, res) =
   }
 });
 
+// Promote Member to Admin
+app.post('/api/teams/:teamId/promote', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { userId } = req.body;
+    const callerId = req.user.id;
+
+    const team = await database.findTeamById(teamId);
+    if (!team) return res.status(404).json({ message: 'Team not found.' });
+
+    const admins = team.admins || [team.creatorId];
+    if (!admins.includes(callerId)) {
+      return res.status(403).json({ message: 'Only team admins can promote members.' });
+    }
+
+    if (!team.members.includes(userId)) {
+      return res.status(400).json({ message: 'User is not a member of this team.' });
+    }
+
+    if (!team.admins) team.admins = [team.creatorId];
+    if (!team.admins.includes(userId)) {
+      team.admins.push(userId);
+      await database.updateTeam(team);
+      // Notify all clients of update
+      io.emit('team_updated', { teamId });
+    }
+
+    res.status(200).json({ team, message: 'User promoted to admin successfully.' });
+  } catch (error) {
+    console.error('Error promoting member:', error);
+    res.status(500).json({ message: 'Server error promoting member.' });
+  }
+});
+
+// Kick Member from Team
+app.post('/api/teams/:teamId/kick', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { userId } = req.body;
+    const callerId = req.user.id;
+
+    const team = await database.findTeamById(teamId);
+    if (!team) return res.status(404).json({ message: 'Team not found.' });
+
+    const admins = team.admins || [team.creatorId];
+    if (!admins.includes(callerId)) {
+      return res.status(403).json({ message: 'Only team admins can remove members.' });
+    }
+
+    if (userId === team.creatorId) {
+      return res.status(400).json({ message: 'The team creator cannot be removed.' });
+    }
+
+    if (admins.includes(userId) && callerId !== team.creatorId) {
+      return res.status(400).json({ message: 'Only the team creator can remove another admin.' });
+    }
+
+    team.members = team.members.filter(m => m !== userId);
+    team.admins = admins.filter(a => a !== userId);
+
+    await database.updateTeam(team);
+
+    // Notify the kicked user and others
+    io.emit('member_kicked', { teamId, userId });
+    io.emit('team_updated', { teamId });
+
+    res.status(200).json({ team, message: 'Member removed successfully.' });
+  } catch (error) {
+    console.error('Error kicking member:', error);
+    res.status(500).json({ message: 'Server error removing member.' });
+  }
+});
+
+// Change Team Theme
+app.post('/api/teams/:teamId/theme', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { theme } = req.body;
+    const callerId = req.user.id;
+
+    const team = await database.findTeamById(teamId);
+    if (!team) return res.status(404).json({ message: 'Team not found.' });
+
+    const admins = team.admins || [team.creatorId];
+    if (!admins.includes(callerId)) {
+      return res.status(403).json({ message: 'Only team admins can change the theme.' });
+    }
+
+    team.theme = theme || 'default';
+    await database.updateTeam(team);
+
+    io.emit('team_theme_updated', { teamId, theme: team.theme });
+    io.emit('team_updated', { teamId });
+
+    res.status(200).json({ team, message: 'Theme updated successfully.' });
+  } catch (error) {
+    console.error('Error changing theme:', error);
+    res.status(500).json({ message: 'Server error updating theme.' });
+  }
+});
+
 // Leave a Team
 app.post('/api/teams/:teamId/leave', authenticateToken, async (req, res) => {
   try {

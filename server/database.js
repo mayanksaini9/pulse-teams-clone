@@ -59,6 +59,8 @@ const TeamSchema = new mongoose.Schema({
   name: { type: String, required: true },
   passcode: { type: String, required: true },
   creatorId: { type: String, required: true },
+  admins: [{ type: String }],
+  theme: { type: String, default: 'default' },
   members: [{ type: String }],
   channels: [{
     id: { type: String, required: true },
@@ -217,19 +219,38 @@ const database = {
   
   findTeamById: async (id) => {
     if (isMongoConnected()) {
-      return await Team.findOne({ id }).lean();
+      const team = await Team.findOne({ id }).lean();
+      if (team) {
+        if (!team.admins || team.admins.length === 0) team.admins = [team.creatorId];
+        if (!team.theme) team.theme = 'default';
+      }
+      return team;
     } else {
       const teams = readData('teams');
-      return teams.find(t => t.id === id) || null;
+      const team = teams.find(t => t.id === id) || null;
+      if (team) {
+        if (!team.admins || team.admins.length === 0) team.admins = [team.creatorId];
+        if (!team.theme) team.theme = 'default';
+      }
+      return team;
     }
   },
 
   findTeamsForUser: async (userId) => {
     if (isMongoConnected()) {
-      return await Team.find({ members: userId }).lean();
+      const teams = await Team.find({ members: userId }).lean();
+      return teams.map(t => {
+        if (!t.admins || t.admins.length === 0) t.admins = [t.creatorId];
+        if (!t.theme) t.theme = 'default';
+        return t;
+      });
     } else {
       const teams = readData('teams');
-      return teams.filter(t => t.members.includes(userId));
+      return teams.filter(t => t.members.includes(userId)).map(t => {
+        if (!t.admins || t.admins.length === 0) t.admins = [t.creatorId];
+        if (!t.theme) t.theme = 'default';
+        return t;
+      });
     }
   },
   
@@ -247,6 +268,8 @@ const database = {
         name: teamData.name,
         passcode: teamData.passcode,
         creatorId: teamData.creatorId,
+        admins: [teamData.creatorId],
+        theme: 'default',
         members: [teamData.creatorId],
         channels
       });
@@ -259,6 +282,8 @@ const database = {
         name: teamData.name,
         passcode: teamData.passcode,
         creatorId: teamData.creatorId,
+        admins: [teamData.creatorId],
+        theme: 'default',
         members: [teamData.creatorId],
         channels,
         createdAt: new Date().toISOString()
