@@ -88,6 +88,13 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     };
   }, []);
 
+  // Bind local stream to local video element ref
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream, isVideoOff, isScreenSharing]);
+
   const initWebRTC = () => {
     if (!socket) return;
 
