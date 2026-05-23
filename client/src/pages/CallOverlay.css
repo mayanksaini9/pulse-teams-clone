@@ -206,3 +206,18 @@
   background: #dc2626;
   transform: scale(1.05) rotate(135deg);
 }
+
+.call-duration-badge {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #a7f3d0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: 0 0 10px rgba(167, 243, 208, 0.05);
+}

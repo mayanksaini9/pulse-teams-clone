@@ -10,6 +10,21 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [screenShareOwner, setScreenShareOwner] = useState(null); // { socketId, name }
   const [errorMsg, setErrorMsg] = useState('');
+  const [duration, setDuration] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDuration(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatDuration = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs > 0 ? hrs + ':' : ''}${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const localVideoRef = useRef(null);
   const pcs = useRef({}); // RTCPeerConnection instances keyed by socketId
@@ -379,6 +394,7 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       <div className="call-header">
         <div className="call-header-title">
           <span className="live-badge">LIVE</span>
+          <span className="call-duration-badge">{formatDuration(duration)}</span>
           <h2>Channel Meeting: #{channelName}</h2>
         </div>
         <div className="call-participants-counter">
