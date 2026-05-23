@@ -5,6 +5,8 @@ const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587');
 const SMTP_USER = process.env.SMTP_USER; // Your Gmail / SMTP email
 const SMTP_PASS = process.env.SMTP_PASS; // Your Gmail App Password / SMTP password
 
+console.log(`[EMAIL BOOT] SMTP_USER: ${SMTP_USER ? 'Configured (' + SMTP_USER + ')' : 'MISSING'}, SMTP_PASS: ${SMTP_PASS ? 'Configured' : 'MISSING'}`);
+
 let transporter = null;
 
 if (SMTP_USER && SMTP_PASS) {
