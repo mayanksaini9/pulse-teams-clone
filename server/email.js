@@ -53,8 +53,9 @@ const sendVerificationEmail = async (toEmail, code) => {
     return false;
   }
 
+  const senderEmail = process.env.SENDER_EMAIL || (SMTP_USER.includes('@smtp-brevo.com') ? 'sainimayank100@gmail.com' : SMTP_USER);
   const mailOptions = {
-    from: `"Pulse Workspace" <${SMTP_USER}>`,
+    from: `"Pulse Workspace" <${senderEmail}>`,
     to: toEmail,
     subject: `${code} is your Pulse Verification Code`,
     html: `
