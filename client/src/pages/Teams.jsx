@@ -27,6 +27,7 @@ const Teams = () => {
     sendMessage,
     members,
     leaveTeam,
+    socket,
   } = useTeams();
 
   const themeColors = {
