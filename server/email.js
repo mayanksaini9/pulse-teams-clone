@@ -10,7 +10,7 @@ console.log(`[EMAIL BOOT] SMTP_USER: ${SMTP_USER ? 'Configured (' + SMTP_USER + 
 let transporter = null;
 
 if (SMTP_USER && SMTP_PASS) {
-  const isGmail = SMTP_USER.toLowerCase().endsWith('@gmail.com') || SMTP_HOST.includes('gmail.com');
+  const isGmail = !process.env.SMTP_HOST || SMTP_HOST.includes('gmail.com');
   
   const transportConfig = isGmail 
     ? {
