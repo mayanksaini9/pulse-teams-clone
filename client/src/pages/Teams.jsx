@@ -87,6 +87,7 @@ const Teams = () => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
   const [showPasscodeReveal, setShowPasscodeReveal] = useState(false);
 
   // Chat message states
@@ -225,6 +226,37 @@ const Teams = () => {
       socket.off('active_calls_update');
     };
   }, [socket, currentTeam]);
+
+  // Process pending invites on login/signup
+  useEffect(() => {
+    const pendingInvite = localStorage.getItem('pending_invite_team_id');
+    if (pendingInvite && user) {
+      localStorage.removeItem('pending_invite_team_id');
+      
+      const joinInvite = async () => {
+        try {
+          const res = await fetch(`/api/teams/${pendingInvite}/join-invite`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+            }
+          });
+          const data = await res.json();
+          if (res.ok) {
+            alert(`Successfully joined team via invite link: ${data.team.name}!`);
+            window.location.reload();
+          } else {
+            alert(data.message || 'Failed to join team via invite link.');
+          }
+        } catch (e) {
+          console.error("Invite join error:", e);
+        }
+      };
+      
+      joinInvite();
+    }
+  }, [user]);
 
   // Click outside detection for media picker and emoji picker
   useEffect(() => {
@@ -1136,6 +1168,24 @@ const Teams = () => {
               <div className="header-right">
                 {/* Team Access Info Card */}
                 <div className="team-credentials-badge glass-panel">
+                  <div 
+                    className="cred-item invite-link-badge" 
+                    onClick={() => {
+                      const inviteUrl = `${window.location.origin}/?invite=${currentTeam.id}`;
+                      navigator.clipboard.writeText(inviteUrl);
+                      setCopiedInvite(true);
+                      setTimeout(() => setCopiedInvite(false), 2000);
+                    }} 
+                    title="Click to copy Invite Link"
+                    style={{
+                      background: 'rgba(99, 102, 241, 0.1)',
+                      borderColor: 'rgba(99, 102, 241, 0.25)',
+                    }}
+                  >
+                    <span className="label" style={{ color: 'var(--accent-primary)' }}>INVITE:</span>
+                    <span className="value" style={{ fontWeight: '600' }}>Copy Link</span>
+                    {copiedInvite ? <ClipboardCheck size={12} className="copy-icon success" /> : <Copy size={12} className="copy-icon" style={{ color: 'var(--accent-primary)' }} />}
+                  </div>
                   <div className="cred-item" onClick={copyTeamId} title="Click to copy Team ID">
                     <span className="label">ID:</span>
                     <span className="value font-mono">{currentTeam.id}</span>

@@ -306,6 +306,31 @@ app.post('/api/teams/join', authenticateToken, async (req, res) => {
   }
 });
 
+// Join a Team via Invite Link (Bypasses Passcode)
+app.post('/api/teams/:teamId/join-invite', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const userId = req.user.id;
+
+    const team = await database.findTeamById(teamId.toUpperCase().trim());
+    if (!team) {
+      return res.status(404).json({ message: 'Team not found.' });
+    }
+
+    if (team.members.includes(userId)) {
+      return res.status(200).json({ team, message: 'Already a member.' });
+    }
+
+    team.members.push(userId);
+    await database.updateTeam(team);
+
+    res.status(200).json({ team, message: `Successfully joined ${team.name}!` });
+  } catch (error) {
+    console.error('Error joining team via invite:', error);
+    res.status(500).json({ message: 'Server error joining team via invite.' });
+  }
+});
+
 // Leave a Team
 app.post('/api/teams/:teamId/leave', authenticateToken, async (req, res) => {
   try {

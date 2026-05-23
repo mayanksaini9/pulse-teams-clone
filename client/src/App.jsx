@@ -7,6 +7,16 @@ import { Activity } from 'lucide-react';
 const AppContent = () => {
   const { user, loading } = useAuth();
 
+  React.useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const inviteId = searchParams.get('invite');
+    if (inviteId) {
+      localStorage.setItem('pending_invite_team_id', inviteId);
+      // Clean query parameter from URL bar
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   if (loading) {
     return (
       <div className="app-loading-screen">
