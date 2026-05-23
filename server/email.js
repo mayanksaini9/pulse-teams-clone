@@ -14,10 +14,15 @@ if (SMTP_USER && SMTP_PASS) {
   
   const transportConfig = isGmail 
     ? {
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false, // STARTTLS
         auth: {
           user: SMTP_USER,
           pass: SMTP_PASS
+        },
+        tls: {
+          rejectUnauthorized: false
         }
       }
     : {
