@@ -284,7 +284,7 @@ const Auth = () => {
           display: flex;
           align-items: center;
           justify-content: center;
-          background-color: var(--bg-deep);
+          background-color: transparent;
           position: relative;
           overflow: hidden;
           padding: 24px;
