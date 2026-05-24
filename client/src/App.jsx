@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Auth from './pages/Auth';
 import Teams from './pages/Teams';
 import { Activity } from 'lucide-react';
+import { LivePulseBackground } from './components/LivePulseBackground';
 
 const AppContent = () => {
   const { user, loading } = useAuth();
@@ -100,7 +101,12 @@ const AppContent = () => {
     );
   }
 
-  return user ? <Teams /> : <Auth />;
+  return (
+    <>
+      <LivePulseBackground />
+      {user ? <Teams /> : <Auth />}
+    </>
+  );
 };
 
 import { TeamProvider } from './context/TeamContext';
