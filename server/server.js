@@ -1,6 +1,4 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
-const dns = require('dns');
-dns.setDefaultResultOrder('ipv4first');
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -16,7 +14,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Connect to MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pulse-teams';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/pulse-teams';
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('Connected to MongoDB successfully');
