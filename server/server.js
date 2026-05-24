@@ -20,36 +20,11 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pulse-
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('Connected to MongoDB successfully');
-    if (process.env.RESET_DB === 'true') {
-      console.log('RESET_DB=true detected. Wiping MongoDB database collections...');
-      try {
-        await mongoose.connection.db.dropDatabase();
-        console.log('MongoDB database wiped successfully.');
-      } catch (dropErr) {
-        console.error('Failed to wipe MongoDB database:', dropErr);
-      }
-    }
   })
   .catch(err => {
     console.error('MongoDB connection error:', err);
     console.log('Ensure MongoDB is installed and running locally, or supply MONGODB_URI.');
   });
-
-// Also reset local files if requested
-if (process.env.RESET_DB === 'true') {
-  console.log('RESET_DB=true detected. Wiping local JSON database files...');
-  const resetFiles = ['users.json', 'teams.json', 'messages.json'];
-  const fs = require('fs');
-  resetFiles.forEach(file => {
-    const filePath = path.join(__dirname, 'data', file);
-    try {
-      fs.writeFileSync(filePath, JSON.stringify([], null, 2));
-      console.log(`Wiped local file: ${file}`);
-    } catch (e) {
-      console.error(`Failed to wipe local file: ${file}`, e);
-    }
-  });
-}
 
 // Environment variables
 const PORT = process.env.PORT || 5000;
