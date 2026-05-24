@@ -84,6 +84,8 @@ const MessageSchema = new mongoose.Schema({
   type: { type: String, default: 'text' },
   attachment: { type: mongoose.Schema.Types.Mixed },
   isSystem: { type: Boolean, default: false },
+  isMedia: { type: Boolean, default: false },
+  isAttachment: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now },
   replyTo: { type: mongoose.Schema.Types.Mixed, default: null }
 });
