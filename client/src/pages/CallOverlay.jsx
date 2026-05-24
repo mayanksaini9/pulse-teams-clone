@@ -96,9 +96,15 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       });
       pcs.current = {};
       
-      // Notify signaling server
+      // Notify signaling server and clean up socket listeners
       if (socket) {
         socket.emit('leave_call_room', { teamId, channelId });
+        socket.off('call_room_users');
+        socket.off('user_joined_call');
+        socket.off('receive_call_signal');
+        socket.off('user_left_call');
+        socket.off('screen_share_owner');
+        socket.off('screen_share_cleared');
       }
     };
   }, []);
@@ -523,13 +529,18 @@ const VideoFeedCard = ({ user, isFeatured }) => {
       className="video-card remote-feed"
       style={isFeatured ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
     >
-      {!hasVideoTrack ? (
-        <div className="call-avatar-placeholder" style={{ backgroundColor: user.avatarColor }}>
+      {!hasVideoTrack && (
+        <div className="call-avatar-placeholder" style={{ backgroundColor: user.avatarColor || '#8b5cf6' }}>
           {(user.userName || 'U').charAt(0).toUpperCase()}
         </div>
-      ) : (
-        <video ref={videoRef} autoPlay playsInline className="video-element" />
       )}
+      <video 
+        ref={videoRef} 
+        autoPlay 
+        playsInline 
+        className="video-element" 
+        style={{ display: hasVideoTrack ? 'block' : 'none' }} 
+      />
       <span className="video-label">{user.userName} {isFeatured && ' - Screen sharing'}</span>
     </div>
   );
