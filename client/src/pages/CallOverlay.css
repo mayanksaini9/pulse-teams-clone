@@ -263,3 +263,100 @@
     font-size: 24px !important;
   }
 }
+
+/* Minimized Call Overlay styles */
+.call-overlay-viewport.minimized {
+  position: fixed !important;
+  width: 320px !important;
+  height: 260px !important;
+  border-radius: 16px !important;
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.75), 0 0 30px rgba(99, 102, 241, 0.15) !important;
+  border: 1px solid var(--border-light) !important;
+  background: rgba(15, 17, 26, 0.95) !important;
+  backdrop-filter: blur(25px) !important;
+  padding: 12px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  z-index: 100005 !important;
+  cursor: grab;
+  transition: box-shadow 0.2s;
+}
+
+.call-overlay-viewport.minimized:active {
+  cursor: grabbing;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.85), 0 0 40px rgba(99, 102, 241, 0.25) !important;
+}
+
+.call-overlay-viewport.minimized .call-header {
+  margin-bottom: 8px !important;
+}
+
+.call-overlay-viewport.minimized .call-header h2 {
+  font-size: 13px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.call-overlay-viewport.minimized .call-participants-counter {
+  display: none !important;
+}
+
+.call-overlay-viewport.minimized .call-grid {
+  grid-template-columns: 1fr !important;
+  margin-bottom: 60px !important;
+  gap: 0 !important;
+  height: calc(100% - 100px) !important;
+}
+
+.call-overlay-viewport.minimized .video-card {
+  min-height: auto !important;
+  height: 100% !important;
+  border-radius: 10px !important;
+}
+
+.call-overlay-viewport.minimized .video-card.remote-feed {
+  display: none !important; /* Hide other feeds, show local or active screen share */
+}
+
+/* If screen sharing is active in minimized view, we show that, otherwise show local feed */
+.call-overlay-viewport.minimized .video-label {
+  font-size: 10px !important;
+  padding: 2px 6px !important;
+  bottom: 8px !important;
+  left: 8px !important;
+}
+
+.call-overlay-viewport.minimized .call-avatar-placeholder {
+  width: 52px !important;
+  height: 52px !important;
+  font-size: 20px !important;
+}
+
+.call-overlay-viewport.minimized .call-controls-bar {
+  position: absolute !important;
+  bottom: 12px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: auto !important;
+  padding: 6px 12px !important;
+  gap: 10px !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+}
+
+.call-overlay-viewport.minimized .control-btn {
+  width: 34px !important;
+  height: 34px !important;
+}
+
+.call-overlay-viewport.minimized .control-btn svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.call-overlay-viewport.minimized .control-btn.hang-up {
+  width: 38px !important;
+  height: 38px !important;
+}
+

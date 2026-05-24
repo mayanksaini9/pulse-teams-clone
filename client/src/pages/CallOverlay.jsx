@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Users, Monitor } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Users, Monitor, Minimize2, Maximize2 } from 'lucide-react';
 import './CallOverlay.css';
 
 export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUser, initialCallType, onClose }) => {
@@ -11,6 +11,67 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
   const [screenShareOwner, setScreenShareOwner] = useState(null); // { socketId, name }
   const [errorMsg, setErrorMsg] = useState('');
   const [duration, setDuration] = useState(0);
+
+  // Floating Minimized Panel states
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [position, setPosition] = useState({ x: window.innerWidth - 320 - 20, y: window.innerHeight - 260 - 20 });
+  const draggingRef = useRef(false);
+  const relRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!isMinimized) return;
+    const handleResize = () => {
+      setPosition(prev => ({
+        x: Math.min(window.innerWidth - 320 - 20, prev.x),
+        y: Math.min(window.innerHeight - 260 - 20, prev.y)
+      }));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isMinimized]);
+
+  const handleMouseDown = (e) => {
+    if (!isMinimized) return;
+    if (e.target.closest('button') || e.target.closest('svg')) return;
+    
+    draggingRef.current = true;
+    relRef.current = {
+      x: e.clientX - position.x,
+      y: e.clientY - position.y
+    };
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!draggingRef.current) return;
+      
+      let newX = e.clientX - relRef.current.x;
+      let newY = e.clientY - relRef.current.y;
+      
+      const cardWidth = 320;
+      const cardHeight = 260;
+      
+      newX = Math.max(10, Math.min(window.innerWidth - cardWidth - 10, newX));
+      newY = Math.max(10, Math.min(window.innerHeight - cardHeight - 10, newY));
+      
+      setPosition({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      draggingRef.current = false;
+    };
+
+    if (isMinimized) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isMinimized]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -390,14 +451,23 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     if (socket) {
       socket.emit('share_screen_stopped', { teamId, channelId });
     }
-
     setIsScreenSharing(false);
   };
 
-  const remoteUsers = Object.values(remoteStreams);
+  const getMinimizedUserToRender = () => {
+    if (screenShareOwner && screenShareOwner.socketId !== socket?.id) {
+      return remoteUsers.find(u => u.socketId === screenShareOwner.socketId);
+    }
+    return null;
+  };
+  const minimizedRemoteUser = getMinimizedUserToRender();
 
   return (
-    <div className="call-overlay-viewport">
+    <div 
+      className={`call-overlay-viewport ${isMinimized ? 'minimized' : ''}`}
+      style={isMinimized ? { left: `${position.x}px`, top: `${position.y}px` } : {}}
+      onMouseDown={handleMouseDown}
+    >
       <div className="call-header">
         <div className="call-header-title">
           <span className="live-badge">LIVE</span>
@@ -408,12 +478,38 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           <Users size={16} />
           <span>{remoteUsers.length + 1} participant(s)</span>
         </div>
+        <div className="call-header-actions" style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+          <button 
+            type="button"
+            onClick={() => setIsMinimized(!isMinimized)} 
+            className="header-action-btn"
+            title={isMinimized ? "Maximize Call" : "Minimize Call"}
+            style={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid var(--border-light)',
+              borderRadius: '6px',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+              zIndex: 100008
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+          >
+            {isMinimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+          </button>
+        </div>
       </div>
 
-      {errorMsg && <div className="call-error-banner">{errorMsg}</div>}
+      {errorMsg && !isMinimized && <div className="call-error-banner">{errorMsg}</div>}
 
       {/* Screen Sharing Banner Notification */}
-      {screenShareOwner && (
+      {screenShareOwner && !isMinimized && (
         <div 
           className="screen-share-banner animate-fade"
           style={{
@@ -438,32 +534,53 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       )}
 
       {/* Main Grid View */}
-      <div className={`call-grid ${remoteUsers.length === 0 ? 'single-view' : 'multi-view'}`}>
-        
-        {/* Local Participant Feed */}
-        <div 
-          className="video-card local-feed"
-          style={isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
-        >
-          {isVideoOff ? (
-            <div className="call-avatar-placeholder" style={{ backgroundColor: currentUser.avatarColor || '#8b5cf6' }}>
-              {(currentUser.name || 'U').charAt(0).toUpperCase()}
-            </div>
+      {isMinimized ? (
+        <div className="call-grid single-view">
+          {minimizedRemoteUser ? (
+            <VideoFeedCard user={minimizedRemoteUser} isFeatured={true} />
           ) : (
-            <video ref={localVideoRef} autoPlay playsInline muted className="video-element" />
+            <div 
+              className="video-card local-feed"
+              style={isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
+            >
+              {isVideoOff ? (
+                <div className="call-avatar-placeholder" style={{ backgroundColor: currentUser.avatarColor || '#8b5cf6' }}>
+                  {(currentUser.name || 'U').charAt(0).toUpperCase()}
+                </div>
+              ) : (
+                <video ref={localVideoRef} autoPlay playsInline muted className="video-element" />
+              )}
+              <span className="video-label">{currentUser.name} (You)</span>
+            </div>
           )}
-          <span className="video-label">{currentUser.name} (You) {isScreenSharing && ' - Screen sharing'}</span>
         </div>
+      ) : (
+        <div className={`call-grid ${remoteUsers.length === 0 ? 'single-view' : 'multi-view'}`}>
+          {/* Local Participant Feed */}
+          <div 
+            className="video-card local-feed"
+            style={isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
+          >
+            {isVideoOff ? (
+              <div className="call-avatar-placeholder" style={{ backgroundColor: currentUser.avatarColor || '#8b5cf6' }}>
+                {(currentUser.name || 'U').charAt(0).toUpperCase()}
+              </div>
+            ) : (
+              <video ref={localVideoRef} autoPlay playsInline muted className="video-element" />
+            )}
+            <span className="video-label">{currentUser.name} (You) {isScreenSharing && ' - Screen sharing'}</span>
+          </div>
 
-        {/* Remote Participant Feeds */}
-        {remoteUsers.map((user, idx) => (
-          <VideoFeedCard 
-            key={idx} 
-            user={user} 
-            isFeatured={screenShareOwner && screenShareOwner.socketId === user.socketId} 
-          />
-        ))}
-      </div>
+          {/* Remote Participant Feeds */}
+          {remoteUsers.map((user, idx) => (
+            <VideoFeedCard 
+              key={idx} 
+              user={user} 
+              isFeatured={screenShareOwner && screenShareOwner.socketId === user.socketId} 
+            />
+          ))}
+        </div>
+      )}
 
       {/* Control Action Toolbar */}
       <div className="call-controls-bar glass-panel">
