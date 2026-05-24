@@ -684,6 +684,17 @@ const getActiveCallsList = (teamId) => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
+  socket.on('user_connected', async ({ userId }) => {
+    socket.userId = userId;
+    console.log(`User ${userId} associated with socket ${socket.id}`);
+    try {
+      await database.updateUserProfile(userId, { status: 'online' });
+      io.emit('user_status_change', { userId, status: 'online' });
+    } catch (err) {
+      console.error('Error updating status to online:', err);
+    }
+  });
+
   // Join a team room
   socket.on('join_team', ({ teamId }) => {
     socket.join(teamId);
@@ -887,7 +898,23 @@ io.on('connection', (socket) => {
     socket.emit('active_calls_update', activeList);
   });
 
-  socket.on('disconnecting', () => {
+  socket.on('disconnecting', async () => {
+    if (socket.userId) {
+      const userId = socket.userId;
+      // Check if there are other active sockets connected for this user ID
+      const allSockets = Array.from(io.sockets.sockets.values());
+      const otherSockets = allSockets.filter(s => s.id !== socket.id && s.userId === userId);
+      if (otherSockets.length === 0) {
+        console.log(`User ${userId} status offline on disconnect`);
+        try {
+          await database.updateUserProfile(userId, { status: 'offline' });
+          io.emit('user_status_change', { userId, status: 'offline' });
+        } catch (err) {
+          console.error('Error updating status to offline:', err);
+        }
+      }
+    }
+
     // Notify all rooms the socket was in that they left calls
     const rooms = Array.from(socket.rooms);
     rooms.forEach((room) => {

@@ -1225,8 +1225,8 @@ body {
 }
 
 .status-indicator.offline {
-  background: var(--text-muted) !important;
-  box-shadow: none !important;
+  background: var(--error) !important;
+  box-shadow: 0 0 8px var(--error) !important;
 }
 
 .user-status-msg {

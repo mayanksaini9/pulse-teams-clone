@@ -6,7 +6,7 @@ import {
   Search, Plus, ChevronDown, Check, User, Sparkles, Shield, Hash, 
   ArrowUpRight, TrendingUp, Calendar, Copy, Eye, EyeOff, X, Send,
   Paperclip, Smile, Users as GroupIcon, ShieldAlert, Key, ClipboardCheck,
-  Download, File, Menu
+  Download, File, Menu, Mic, Camera
 } from 'lucide-react';
 
 import { CallOverlay } from './CallOverlay';
@@ -127,6 +127,166 @@ const Teams = () => {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
+
+  // Audio recording states
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+
+  // Camera capture states
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const cameraVideoRef = useRef(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        // Stop all audio tracks to release the microphone
+        stream.getTracks().forEach(track => track.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (audioChunksRef.current.length > 0) {
+          const file = new File([audioBlob], `voice-message-${Date.now()}.webm`, { type: 'audio/webm' });
+          
+          // Send it using FileReader
+          const reader = new FileReader();
+          reader.onload = () => {
+            const payload = {
+              name: file.name,
+              size: file.size,
+              type: file.type,
+              data: reader.result
+            };
+            sendMessage(JSON.stringify(payload), false, true);
+          };
+          reader.readAsDataURL(file);
+        }
+
+        setIsRecording(false);
+        setRecordingDuration(0);
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+      
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      setError("Microphone access denied or not available.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.ondataavailable = null;
+      mediaRecorderRef.current.stop();
+      
+      const stream = mediaRecorderRef.current.stream;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    }
+    setIsRecording(false);
+    setRecordingDuration(0);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  const startCamera = async () => {
+    try {
+      setShowCameraModal(true);
+      setError('');
+      setTimeout(async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          setCameraStream(stream);
+          if (cameraVideoRef.current) {
+            cameraVideoRef.current.srcObject = stream;
+          }
+        } catch (err) {
+          console.error("Error starting camera stream:", err);
+          setError("Camera access denied or not available.");
+          setShowCameraModal(false);
+        }
+      }, 300);
+    } catch (err) {
+      console.error("Error showing camera modal:", err);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowCameraModal(false);
+  };
+
+  const capturePhoto = () => {
+    if (!cameraVideoRef.current) return;
+
+    const video = cameraVideoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `camera-snapshot-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        
+        const reader = new FileReader();
+        reader.onload = () => {
+          const payload = {
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            data: reader.result
+          };
+          sendMessage(JSON.stringify(payload), false, true);
+        };
+        reader.readAsDataURL(file);
+      }
+      stopCamera();
+    }, 'image/jpeg', 0.85);
+  };
 
   // UI states
   const [error, setError] = useState('');
@@ -901,6 +1061,65 @@ const Teams = () => {
     if (msg.isAttachment) {
       try {
         const fileInfo = JSON.parse(msg.text);
+        const isImage = fileInfo.type?.startsWith('image/') || fileInfo.name?.match(/\.(jpeg|jpg|png|gif|webp)$/i);
+        const isAudio = fileInfo.type?.startsWith('audio/') || fileInfo.name?.match(/\.(webm|wav|mp3|ogg|m4a)$/i);
+
+        if (isImage) {
+          return (
+            <div style={{ marginTop: '4px' }}>
+              <img 
+                src={fileInfo.data} 
+                alt={fileInfo.name} 
+                style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '260px', 
+                  borderRadius: '12px', 
+                  border: '1px solid var(--border-light)', 
+                  display: 'block' 
+                }} 
+              />
+              <a 
+                href={fileInfo.data} 
+                download={fileInfo.name} 
+                style={{ 
+                  fontSize: '11px', 
+                  color: 'var(--accent-primary)', 
+                  textDecoration: 'none', 
+                  marginTop: '6px', 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  gap: '4px' 
+                }}
+              >
+                <Download size={12} /> Download Original ({formatBytes(fileInfo.size)})
+              </a>
+            </div>
+          );
+        }
+
+        if (isAudio) {
+          return (
+            <div style={{ 
+              marginTop: '4px', 
+              background: 'rgba(255, 255, 255, 0.02)', 
+              border: '1px solid var(--border-light)', 
+              borderRadius: '12px', 
+              padding: '8px 12px',
+              maxWidth: '300px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <Mic size={14} style={{ color: 'var(--accent-primary)' }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>Voice Message</span>
+              </div>
+              <audio 
+                controls 
+                src={fileInfo.data} 
+                style={{ width: '100%', height: '36px', outline: 'none' }} 
+              />
+            </div>
+          );
+        }
+
         return (
           <a 
             href={fileInfo.data} 
@@ -1818,60 +2037,130 @@ const Teams = () => {
                   >
                     <Paperclip size={18} />
                   </button>
-                  <textarea 
-                    className="chat-input-field" 
-                    placeholder={`Send a message to #${currentChannel.name}`}
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage(e);
-                      }
-                    }}
-                    style={{
-                      resize: 'none',
-                      height: '38px',
-                      paddingTop: '9px',
-                      paddingBottom: '9px',
-                      fontFamily: 'inherit',
-                      lineHeight: '1.4',
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'white',
-                      flexGrow: 1,
-                      outline: 'none',
-                      fontSize: '14px'
-                    }}
-                    rows={1}
-                  />
                   <button 
                     type="button" 
                     className="input-action-btn" 
-                    title="Add Emoji"
-                    onClick={() => {
-                      setShowEmojiPicker(!showEmojiPicker);
-                      setShowMediaPicker(false);
-                    }}
-                    style={{ color: showEmojiPicker ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    title="Record Voice Message"
+                    onClick={startRecording}
                   >
-                    <Smile size={18} />
+                    <Mic size={18} />
                   </button>
                   <button 
                     type="button" 
                     className="input-action-btn" 
-                    title="GIFs & Stickers"
-                    onClick={() => {
-                      setShowMediaPicker(!showMediaPicker);
-                      setShowEmojiPicker(false);
-                    }}
-                    style={{ color: showMediaPicker ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    title="Capture Photo"
+                    onClick={startCamera}
                   >
-                    <Sparkles size={18} />
+                    <Camera size={18} />
                   </button>
-                  <button type="submit" className="send-msg-btn glow-btn" title="Send message">
-                    <Send size={16} />
-                  </button>
+
+                  {isRecording ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexGrow: 1, padding: '0 8px' }}>
+                      <div 
+                        style={{ 
+                          width: '10px', 
+                          height: '10px', 
+                          borderRadius: '50%', 
+                          backgroundColor: '#ef4444', 
+                          animation: 'pulse-alert 1s infinite' 
+                        }} 
+                      />
+                      <span style={{ fontSize: '13px', color: '#fca5a5', fontWeight: 600 }}>
+                        Recording: {formatDuration(recordingDuration)}
+                      </span>
+                      <button 
+                        type="button" 
+                        onClick={cancelRecording} 
+                        style={{ 
+                          marginLeft: 'auto', 
+                          background: 'rgba(239, 68, 68, 0.15)', 
+                          border: '1px solid rgba(239, 68, 68, 0.25)', 
+                          color: '#fca5a5', 
+                          padding: '6px 12px', 
+                          borderRadius: '6px', 
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 600
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={stopRecording} 
+                        style={{ 
+                          background: '#10b981', 
+                          border: 'none', 
+                          color: 'white', 
+                          padding: '6px 14px', 
+                          borderRadius: '6px', 
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
+                        }}
+                      >
+                        Send
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <textarea 
+                        className="chat-input-field" 
+                        placeholder={`Send a message to #${currentChannel.name}`}
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage(e);
+                          }
+                        }}
+                        style={{
+                          resize: 'none',
+                          height: '38px',
+                          paddingTop: '9px',
+                          paddingBottom: '9px',
+                          fontFamily: 'inherit',
+                          lineHeight: '1.4',
+                          border: 'none',
+                          background: 'transparent',
+                          color: 'white',
+                          flexGrow: 1,
+                          outline: 'none',
+                          fontSize: '14px'
+                        }}
+                        rows={1}
+                      />
+                      <button 
+                        type="button" 
+                        className="input-action-btn" 
+                        title="Add Emoji"
+                        onClick={() => {
+                          setShowEmojiPicker(!showEmojiPicker);
+                          setShowMediaPicker(false);
+                        }}
+                        style={{ color: showEmojiPicker ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                      >
+                        <Smile size={18} />
+                      </button>
+                      <button 
+                        type="button" 
+                        className="input-action-btn" 
+                        title="GIFs & Stickers"
+                        onClick={() => {
+                          setShowMediaPicker(!showMediaPicker);
+                          setShowEmojiPicker(false);
+                        }}
+                        style={{ color: showMediaPicker ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                      >
+                        <Sparkles size={18} />
+                      </button>
+                      <button type="submit" className="send-msg-btn glow-btn" title="Send message">
+                        <Send size={16} />
+                      </button>
+                    </>
+                  )}
                 </form>
               </div>
 
@@ -2583,6 +2872,82 @@ const Teams = () => {
           initialCallType={callType}
           onClose={() => setInCall(false)}
         />
+      )}
+        {showCameraModal && (
+        <div className="modal-overlay" style={{ zIndex: 100002 }}>
+          <div className="modal-content-card glass-panel" style={{ maxWidth: '480px', width: '100%', position: 'relative' }}>
+            <div className="modal-header">
+              <h2>Capture Snapshot</h2>
+              <button onClick={stopCamera} className="close-modal-btn">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
+              <div style={{ 
+                width: '100%', 
+                aspectRatio: '4/3', 
+                borderRadius: '8px', 
+                overflow: 'hidden', 
+                background: 'black', 
+                position: 'relative',
+                border: '1px solid var(--border-light)' 
+              }}>
+                <video 
+                  ref={cameraVideoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                />
+              </div>
+
+              {error && <p style={{ color: 'var(--error)', fontSize: '12px', margin: 0 }}>{error}</p>}
+
+              <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid var(--border-light)',
+                    color: 'white',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={capturePhoto}
+                  disabled={!cameraStream}
+                  style={{
+                    flex: 2,
+                    padding: '10px 14px',
+                    background: 'var(--accent-gradient)',
+                    border: 'none',
+                    color: 'white',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    opacity: cameraStream ? 1 : 0.6
+                  }}
+                >
+                  <Camera size={16} />
+                  Capture & Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

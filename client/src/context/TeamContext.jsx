@@ -76,6 +76,11 @@ export const TeamProvider = ({ children }) => {
 
       newSocket.on('connect', () => {
         console.log('Socket connected successfully:', newSocket.id);
+        newSocket.emit('user_connected', { userId: user.id });
+      });
+
+      newSocket.on('user_status_change', ({ userId, status }) => {
+        setMembers(prev => prev.map(m => m.id === userId ? { ...m, status, onlineStatus: status } : m));
       });
 
       // Handle real-time incoming messages
