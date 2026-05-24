@@ -571,7 +571,18 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
                   {(currentUser.name || 'U').charAt(0).toUpperCase()}
                 </div>
               ) : (
-                <video ref={localVideoRef} autoPlay playsInline muted className="video-element" />
+                <video 
+                  ref={el => {
+                    localVideoRef.current = el;
+                    if (el) {
+                      el.srcObject = screenStreamRef.current || localStream;
+                    }
+                  }} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className="video-element" 
+                />
               )}
               <span className="video-label">{currentUser.name} (You)</span>
             </div>
@@ -589,7 +600,18 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
                 {(currentUser.name || 'U').charAt(0).toUpperCase()}
               </div>
             ) : (
-              <video ref={localVideoRef} autoPlay playsInline muted className="video-element" />
+              <video 
+                ref={el => {
+                  localVideoRef.current = el;
+                  if (el) {
+                    el.srcObject = screenStreamRef.current || localStream;
+                  }
+                }} 
+                autoPlay 
+                playsInline 
+                muted 
+                className="video-element" 
+              />
             )}
             <span className="video-label">{currentUser.name} (You) {isScreenSharing && ' - Screen sharing'}</span>
           </div>
@@ -675,7 +697,12 @@ const VideoFeedCard = ({ user, isFeatured }) => {
         </div>
       )}
       <video 
-        ref={videoRef} 
+        ref={el => {
+          videoRef.current = el;
+          if (el && user.stream) {
+            el.srcObject = user.stream;
+          }
+        }} 
         autoPlay 
         playsInline 
         className="video-element" 
