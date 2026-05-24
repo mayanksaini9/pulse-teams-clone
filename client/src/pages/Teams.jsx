@@ -158,6 +158,10 @@ const Teams = () => {
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [teamEditName, setTeamEditName] = useState('');
+  const [teamEditAvatarColor, setTeamEditAvatarColor] = useState('');
+  const [teamEditAvatarUrl, setTeamEditAvatarUrl] = useState('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // GIF & Sticker states
@@ -722,6 +726,65 @@ const Teams = () => {
       setCropOffset({ x: 0, y: 0 });
     };
     reader.readAsDataURL(file);
+  };
+
+  const openTeamEditor = () => {
+    if (!currentTeam) return;
+    setTeamEditName(currentTeam.name);
+    setTeamEditAvatarColor(currentTeam.avatarColor || '#6366f1');
+    setTeamEditAvatarUrl(currentTeam.avatarUrl || '');
+    setShowTeamModal(true);
+    setError('');
+    setSuccess('');
+  };
+
+  const handleTeamPicChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setTeamEditAvatarUrl(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleUpdateTeamProfile = async (e) => {
+    e.preventDefault();
+    if (!currentTeam) return;
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await fetch(`/api/teams/${currentTeam.id}/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: teamEditName,
+          avatarUrl: teamEditAvatarUrl,
+          avatarColor: teamEditAvatarColor
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSuccess('Team settings updated successfully!');
+        fetchTeams();
+        setTimeout(() => {
+          setShowTeamModal(false);
+        }, 1000);
+      } else {
+        setError(data.message || 'Failed to update team profile.');
+      }
+    } catch (err) {
+      console.error('Error updating team settings:', err);
+      setError('Connection error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Drawing the circular crop area on the 200x200 preview canvas
@@ -1477,9 +1540,18 @@ const Teams = () => {
                 }}
                 title={team.name}
               >
-                <div className="team-icon-avatar" style={{ background: isActive ? 'var(--accent-gradient)' : 'rgba(255,255,255,0.05)' }}>
-                  {team.name.substring(0, 2).toUpperCase()}
-                </div>
+                {team.avatarUrl ? (
+                  <img 
+                    src={team.avatarUrl} 
+                    alt={team.name} 
+                    className="team-icon-avatar"
+                    style={{ width: '48px', height: '48px', borderRadius: '16px', objectFit: 'cover' }} 
+                  />
+                ) : (
+                  <div className="team-icon-avatar" style={{ background: isActive ? 'var(--accent-gradient)' : (team.avatarColor || 'rgba(255,255,255,0.05)') }}>
+                    {team.name.substring(0, 2).toUpperCase()}
+                  </div>
+                )}
                 <div className="team-active-indicator"></div>
               </button>
             );
@@ -1542,10 +1614,52 @@ const Teams = () => {
         {currentTeam ? (
           <>
             <div className="sub-sidebar-header">
-              <div className="team-select">
-                <span className="team-avatar">{currentTeam.name.substring(0, 2).toUpperCase()}</span>
-                <div className="team-info">
-                  <h2>{currentTeam.name}</h2>
+              <div className="team-select" style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', overflow: 'hidden' }}>
+                {currentTeam.avatarUrl ? (
+                  <img 
+                    src={currentTeam.avatarUrl} 
+                    alt={currentTeam.name} 
+                    className="team-avatar"
+                    style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} 
+                  />
+                ) : (
+                  <span className="team-avatar" style={{ backgroundColor: currentTeam.avatarColor || '#6366f1', flexShrink: 0 }}>
+                    {currentTeam.name.substring(0, 2).toUpperCase()}
+                  </span>
+                )}
+                <div className="team-info" style={{ overflow: 'hidden', flexGrow: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+                    <h2 style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', margin: 0, fontSize: '15px' }}>{currentTeam.name}</h2>
+                    {currentUserIsAdmin && (
+                      <button
+                        onClick={openTeamEditor}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px',
+                          transition: 'background 0.2s, color 0.2s',
+                          flexShrink: 0
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                          e.currentTarget.style.color = 'var(--text-primary)';
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = 'none';
+                          e.currentTarget.style.color = 'var(--text-muted)';
+                        }}
+                        title="Edit Team Profile & Name"
+                      >
+                        <Settings size={13} />
+                      </button>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
                     <p onClick={() => setShowMembersPanel(true)} style={{ cursor: 'pointer', textDecoration: 'underline', fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
                       {members?.length || 1} members
@@ -3150,6 +3264,190 @@ const Teams = () => {
               <button type="submit" className="glow-btn modal-submit" disabled={loading} style={{ marginTop: '6px' }}>
                 {loading ? <span className="loader"></span> : 'Save Profile Details'}
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Team Settings modal */}
+      {showTeamModal && (
+        <div className="modal-backdrop" style={{ zIndex: 100001 }}>
+          <div className="modal-content-card glass-panel animate-fade" style={{ maxWidth: '440px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <button className="modal-close-btn" onClick={() => setShowTeamModal(false)}>
+              <X size={18} />
+            </button>
+
+            <div className="modal-header">
+              <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)' }}>Team Settings</h2>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Only team admins can update the team profile and name.</p>
+            </div>
+
+            <div className="modal-divider"></div>
+
+            {error && (
+              <div className="modal-alert error animate-fade">
+                <span>{error}</span>
+              </div>
+            )}
+
+            {success && (
+              <div className="modal-alert success animate-fade">
+                <Check size={16} />
+                <span>{success}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateTeamProfile} className="modal-form" style={{ gap: '14px' }}>
+              <div className="input-group">
+                <label htmlFor="team-edit-name">Team Name</label>
+                <input
+                  type="text"
+                  id="team-edit-name"
+                  className="input-field"
+                  value={teamEditName}
+                  onChange={(e) => setTeamEditName(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <label>Team Profile Picture</label>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '16px',
+                    backgroundColor: teamEditAvatarColor || '#6366f1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 'bold',
+                    fontSize: '22px',
+                    color: 'white',
+                    overflow: 'hidden',
+                    border: '2px solid var(--border-light)',
+                    boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+                    flexShrink: 0
+                  }}>
+                    {teamEditAvatarUrl ? (
+                      <img src={teamEditAvatarUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      teamEditName ? teamEditName.substring(0, 2).toUpperCase() : 'T'
+                    )}
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label 
+                      className="glow-btn"
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        border: 'none',
+                        fontWeight: 600,
+                        textAlign: 'center'
+                      }}
+                    >
+                      <Plus size={14} />
+                      Upload Photo
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleTeamPicChange}
+                        style={{ display: 'none' }}
+                        disabled={loading}
+                      />
+                    </label>
+                    {teamEditAvatarUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setTeamEditAvatarUrl('')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#fca5a5',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          padding: 0
+                        }}
+                      >
+                        Remove Photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label>Or Choose Flat Color Theme</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                  {['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#ef4444', '#f97316', '#10b981', '#0ea5e9'].map(color => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => {
+                        setTeamEditAvatarColor(color);
+                        setTeamEditAvatarUrl('');
+                      }}
+                      style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '6px',
+                        backgroundColor: color,
+                        border: teamEditAvatarColor === color ? '2px solid white' : '2px solid transparent',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                        transition: 'transform 0.1s'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
+                      onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="modal-divider" style={{ margin: '10px 0' }}></div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowTeamModal(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid var(--border-light)',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer'
+                  }}
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="glow-btn"
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    border: 'none',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                  disabled={loading}
+                >
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

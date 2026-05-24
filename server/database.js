@@ -61,6 +61,8 @@ const TeamSchema = new mongoose.Schema({
   creatorId: { type: String, required: true },
   admins: [{ type: String }],
   theme: { type: String, default: 'default' },
+  avatarUrl: { type: String, default: '' },
+  avatarColor: { type: String, default: '#6366f1' },
   members: [{ type: String }],
   channels: [{
     id: { type: String, required: true },

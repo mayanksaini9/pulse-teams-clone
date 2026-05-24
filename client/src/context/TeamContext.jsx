@@ -31,10 +31,17 @@ export const TeamProvider = ({ children }) => {
         setTeams(data);
         
         // Auto-select first team if none is selected
-        if (data.length > 0 && !currentTeam) {
-          setCurrentTeam(data[0]);
-          if (data[0].channels && data[0].channels.length > 0) {
-            setCurrentChannel(data[0].channels[0]);
+        if (data.length > 0) {
+          if (!currentTeam) {
+            setCurrentTeam(data[0]);
+            if (data[0].channels && data[0].channels.length > 0) {
+              setCurrentChannel(data[0].channels[0]);
+            }
+          } else {
+            const updatedActiveTeam = data.find(t => t.id === currentTeam.id);
+            if (updatedActiveTeam) {
+              setCurrentTeam(updatedActiveTeam);
+            }
           }
         }
       }
@@ -118,6 +125,11 @@ export const TeamProvider = ({ children }) => {
         if (updatedUser.id === user.id) {
           setUser(updatedUser);
         }
+      });
+
+      // Handle team updates across other sessions
+      newSocket.on('team_updated', ({ teamId }) => {
+        fetchTeams();
       });
 
       newSocket.on('connect_error', (err) => {

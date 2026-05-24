@@ -526,6 +526,42 @@ app.post('/api/teams/:teamId/theme', authenticateToken, async (req, res) => {
   }
 });
 
+// Update Team Profile (Name & Avatar)
+app.post('/api/teams/:teamId/update', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { name, avatarUrl, avatarColor } = req.body;
+    const callerId = req.user.id;
+
+    const team = await database.findTeamById(teamId);
+    if (!team) return res.status(404).json({ message: 'Team not found.' });
+
+    const admins = team.admins || [team.creatorId];
+    if (!admins.includes(callerId)) {
+      return res.status(403).json({ message: 'Only team admins can update the team profile.' });
+    }
+
+    if (name && name.trim()) {
+      team.name = name.trim();
+    }
+    if (avatarUrl !== undefined) {
+      team.avatarUrl = avatarUrl;
+    }
+    if (avatarColor !== undefined) {
+      team.avatarColor = avatarColor;
+    }
+
+    await database.updateTeam(team);
+
+    io.emit('team_updated', { teamId });
+
+    res.status(200).json({ team, message: 'Team profile updated successfully.' });
+  } catch (error) {
+    console.error('Error updating team profile:', error);
+    res.status(500).json({ message: 'Server error updating team profile.' });
+  }
+});
+
 // Leave a Team
 app.post('/api/teams/:teamId/leave', authenticateToken, async (req, res) => {
   try {
