@@ -1292,3 +1292,154 @@ body {
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
   }
 }
+
+/* --- MOBILE RESPONSIVENESS SYSTEM --- */
+@media (max-width: 768px) {
+  .app-container {
+    flex-direction: column !important;
+  }
+
+  .mobile-top-bar {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    padding: 0 16px;
+    background: #07080c;
+    border-bottom: 1px solid var(--border-light);
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+
+  .mobile-menu-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .mobile-menu-toggle-btn:hover {
+    background: var(--bg-hover);
+  }
+
+  .mobile-logo-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 18px;
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+
+  /* Slide-out Sidebar Overlay Configuration */
+  .main-sidebar {
+    position: fixed !important;
+    top: 56px !important;
+    left: -72px !important;
+    width: 72px !important;
+    height: calc(100% - 56px) !important;
+    transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    z-index: 999 !important;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .sub-sidebar {
+    position: fixed !important;
+    top: 56px !important;
+    left: -312px !important; /* -72px - 240px */
+    width: 240px !important;
+    height: calc(100% - 56px) !important;
+    transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    z-index: 998 !important;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+    background-color: var(--bg-card-solid) !important;
+  }
+
+  /* Triggered Slide Actions */
+  .mobile-sidebar-active .main-sidebar {
+    left: 0 !important;
+  }
+
+  .mobile-sidebar-active .sub-sidebar {
+    left: 72px !important;
+  }
+
+  /* Main viewport panel layout adjustments */
+  .main-content {
+    width: 100vw !important;
+    height: calc(100vh - 56px) !important;
+    flex-grow: 1 !important;
+  }
+
+  /* Adjust and crop chat header contents */
+  .content-header {
+    padding: 0 12px !important;
+    height: 56px !important;
+  }
+
+  .header-left h1 {
+    font-size: 14px !important;
+  }
+
+  .header-desc,
+  .header-divider,
+  .team-credentials-badge {
+    display: none !important;
+  }
+
+  /* Compact chat layouts */
+  .chat-messages-container {
+    padding: 12px !important;
+    gap: 12px !important;
+  }
+
+  .chat-input-wrapper {
+    margin: 0 12px 12px 12px !important;
+  }
+
+  .message-content-area {
+    max-width: 90% !important;
+  }
+
+  /* Right-hand members sidebar panel overlay */
+  .members-panel {
+    position: fixed !important;
+    top: 56px !important;
+    right: -260px !important;
+    width: 260px !important;
+    height: calc(100% - 56px) !important;
+    transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    z-index: 1001 !important;
+    background-color: var(--bg-card-solid) !important;
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .show-members-active .members-panel {
+    right: 0 !important;
+  }
+
+  /* Compact Auth & Verification Forms */
+  .modal-content-card {
+    padding: 24px !important;
+    max-width: 90% !important;
+  }
+
+  .empty-selection-cards {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  .welcome-workspace {
+    padding: 20px !important;
+  }
+
+  .welcome-hero h1 {
+    font-size: 24px !important;
+  }
+}

@@ -6,7 +6,7 @@ import {
   Search, Plus, ChevronDown, Check, User, Sparkles, Shield, Hash, 
   ArrowUpRight, TrendingUp, Calendar, Copy, Eye, EyeOff, X, Send,
   Paperclip, Smile, Users as GroupIcon, ShieldAlert, Key, ClipboardCheck,
-  Download, File
+  Download, File, Menu
 } from 'lucide-react';
 
 import { CallOverlay } from './CallOverlay';
@@ -88,6 +88,7 @@ const Teams = () => {
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // GIF & Sticker states
   const [showMediaPicker, setShowMediaPicker] = useState(false);
@@ -969,8 +970,26 @@ const Teams = () => {
     return <p>{msg.text}</p>;
   };
 
+  const containerClassNames = [
+    "app-container",
+    mobileSidebarOpen ? "mobile-sidebar-active" : "",
+    showMembersPanel ? "show-members-active" : ""
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className="app-container" style={activeStyle}>
+    <div className={containerClassNames} style={activeStyle}>
+      {/* Mobile Top Header Bar */}
+      <header className="mobile-top-bar" style={{ display: 'none' }}>
+        <button
+          className="mobile-menu-toggle-btn"
+          onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+          aria-label="Toggle Navigation Sidebar"
+        >
+          {mobileSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <span className="mobile-logo-title">Pulse</span>
+      </header>
+
       {/* Real-time Incoming Call Ring Toast */}
       {incomingCallAlert && (
         <div 
@@ -1149,6 +1168,7 @@ const Teams = () => {
                   } else {
                     setCurrentChannel(null);
                   }
+                  setMobileSidebarOpen(false);
                 }}
                 title={team.name}
               >
@@ -1281,7 +1301,10 @@ const Teams = () => {
                       <button
                         key={chan.id}
                         className={`channel-item ${currentChannel?.id === chan.id ? 'active' : ''}`}
-                        onClick={() => setCurrentChannel(chan)}
+                        onClick={() => {
+                          setCurrentChannel(chan);
+                          setMobileSidebarOpen(false);
+                        }}
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
