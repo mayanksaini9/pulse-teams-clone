@@ -699,7 +699,7 @@ io.on('connection', (socket) => {
     socket.userId = userId;
     console.log(`User ${userId} associated with socket ${socket.id}`);
     try {
-      await database.updateUserProfile(userId, { status: 'online' });
+      await database.updateUser(userId, { status: 'online' });
       io.emit('user_status_change', { userId, status: 'online' });
     } catch (err) {
       console.error('Error updating status to online:', err);
@@ -919,7 +919,7 @@ io.on('connection', (socket) => {
       if (otherSockets.length === 0) {
         console.log(`User ${userId} status offline on disconnect`);
         try {
-          await database.updateUserProfile(userId, { status: 'offline' });
+          await database.updateUser(userId, { status: 'offline' });
           io.emit('user_status_change', { userId, status: 'offline' });
         } catch (err) {
           console.error('Error updating status to offline:', err);
