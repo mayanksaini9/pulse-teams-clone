@@ -339,6 +339,24 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     });
   };
 
+  const triggerIceRestart = async (socketId) => {
+    const pc = pcs.current[socketId];
+    if (!pc) return;
+    try {
+      console.log(`Initiating ICE restart for peer connection ${socketId}`);
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      socket.emit('send_call_signal', {
+        targetSocketId: socketId,
+        senderName: currentUser.name,
+        senderAvatarColor: currentUser.avatarColor,
+        signal: { type: 'offer', sdp: pc.localDescription }
+      });
+    } catch (err) {
+      console.error(`Error during ICE restart with ${socketId}:`, err);
+    }
+  };
+
   const createPeerConnection = (socketId, userName = 'Guest', avatarColor = '#8b5cf6') => {
     const pc = new RTCPeerConnection(rtcConfig);
     pcs.current[socketId] = pc;
@@ -363,6 +381,14 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           stream: event.streams[0]
         }
       }));
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`ICE Connection State with ${userName} (${socketId}):`, pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        console.log(`ICE failed/disconnected with ${userName}. Triggering ICE restart...`);
+        triggerIceRestart(socketId);
+      }
     };
 
     return pc;
@@ -692,7 +718,7 @@ const VideoFeedCard = ({ user, isFeatured }) => {
       style={isFeatured ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
     >
       {!hasVideoTrack && (
-        <div className="call-avatar-placeholder" style={{ backgroundColor: user.avatarColor || '#8b5cf6' }}>
+        <div className="call-avatar-placeholder" style={{ backgroundColor: user.avatarColor || '#8b5cf6', zIndex: 2 }}>
           {(user.userName || 'U').charAt(0).toUpperCase()}
         </div>
       )}
@@ -706,9 +732,19 @@ const VideoFeedCard = ({ user, isFeatured }) => {
         autoPlay 
         playsInline 
         className="video-element" 
-        style={{ display: hasVideoTrack ? 'block' : 'none' }} 
+        style={{ 
+          position: 'absolute',
+          width: '100%',
+          height: '100%',
+          top: 0,
+          left: 0,
+          objectFit: 'cover',
+          zIndex: 1,
+          opacity: hasVideoTrack ? 1 : 0,
+          pointerEvents: hasVideoTrack ? 'auto' : 'none'
+        }} 
       />
-      <span className="video-label">{user.userName} {isFeatured && ' - Screen sharing'}</span>
+      <span className="video-label" style={{ zIndex: 3 }}>{user.userName} {isFeatured && ' - Screen sharing'}</span>
     </div>
   );
 };
