@@ -6,7 +6,7 @@ import {
   Search, Plus, ChevronDown, Check, User, Sparkles, Shield, Hash, 
   ArrowUpRight, TrendingUp, Calendar, Copy, Eye, EyeOff, X, Send,
   Paperclip, Smile, Users as GroupIcon, ShieldAlert, Key, ClipboardCheck,
-  Download, File, Menu, Mic, Camera
+  Download, File as FileIcon, Menu, Mic, Camera
 } from 'lucide-react';
 
 import { CallOverlay } from './CallOverlay';
@@ -1158,7 +1158,7 @@ const Teams = () => {
               color: 'var(--accent-primary)',
               flexShrink: 0
             }}>
-              <File size={18} />
+              <FileIcon size={18} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flexGrow: 1 }}>
               <span style={{ 
