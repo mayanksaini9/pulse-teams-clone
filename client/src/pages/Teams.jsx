@@ -11,6 +11,76 @@ import {
 
 import { CallOverlay } from './CallOverlay';
 
+// Touch Swipe gesture component to slide-to-reply on mobile
+const MessageSwipeRow = ({ msg, onReply, children }) => {
+  const [startX, setStartX] = useState(0);
+  const [currentX, setCurrentX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+
+  if (msg.isSystem) {
+    return children;
+  }
+
+  const handleTouchStart = (e) => {
+    setStartX(e.touches[0].clientX);
+    setIsSwiping(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isSwiping) return;
+    const diffX = e.touches[0].clientX - startX;
+    if (diffX > 0) {
+      setCurrentX(Math.min(60, diffX));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsSwiping(false);
+    if (currentX >= 40) {
+      onReply();
+    }
+    setCurrentX(0);
+  };
+
+  const translateStyle = currentX > 0 ? {
+    transform: `translateX(${currentX}px)`,
+    transition: isSwiping ? 'none' : 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+  } : {
+    transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+  };
+
+  return (
+    <div 
+      className="swipe-reply-wrapper" 
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{ position: 'relative', width: '100%' }}
+    >
+      {currentX > 15 && (
+        <div style={{
+          position: 'absolute',
+          left: `${Math.min(20, currentX - 20)}px`,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--accent-primary)',
+          opacity: Math.min(1, (currentX - 15) / 25),
+          zIndex: 1,
+          pointerEvents: 'none'
+        }}>
+          <MessageSquare size={16} style={{ transform: 'scaleX(-1)' }} />
+        </div>
+      )}
+      <div style={translateStyle}>
+        {children}
+      </div>
+    </div>
+  );
+};
+
 const Teams = () => {
   const { user, token, logout } = useAuth();
   const { 
@@ -127,6 +197,17 @@ const Teams = () => {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
+
+  const [replyToMessage, setReplyToMessage] = useState(null);
+  const [activeMenuMessageId, setActiveMenuMessageId] = useState(null);
+
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      setActiveMenuMessageId(null);
+    };
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, []);
 
   // Audio recording states
   const [isRecording, setIsRecording] = useState(false);
@@ -514,8 +595,13 @@ const Teams = () => {
     e.preventDefault();
     if (!inputText.trim() || !currentTeam || !currentChannel) return;
 
-    sendMessage(inputText);
+    sendMessage(inputText, false, false, replyToMessage ? {
+      id: replyToMessage.id,
+      senderName: replyToMessage.senderName,
+      text: replyToMessage.text
+    } : null);
     setInputText('');
+    setReplyToMessage(null);
   };
 
   const handleLeaveTeamClick = async () => {
@@ -1772,44 +1858,191 @@ const Teams = () => {
             <div className="content-body chat-theme" style={{ display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
               <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative' }}>
                 <div className="chat-messages-container" style={{ flexGrow: 1, overflowY: 'auto', padding: '20px' }}>
-                  {activeChannelMessages.map((msg) => (
-                    <div key={msg.id} className={`message-bubble-wrapper ${msg.isSystem ? 'system-msg' : ''}`}>
-                      {!msg.isSystem && (
-                        <div className="message-avatar" style={{ backgroundColor: msg.senderAvatarColor || '#6366f1', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px' }}>
-                          {msg.senderAvatarUrl ? (
-                            <img src={msg.senderAvatarUrl} alt={msg.senderName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          ) : (
-                            (msg.senderName || 'U').charAt(0).toUpperCase()
-                          )}
-                        </div>
-                      )}
-                      <div className="message-content-area">
-                        {!msg.isSystem && (
-                          <div className="message-meta">
-                            <span className="sender-name">{msg.senderName}</span>
-                            <span className="timestamp">{formatTime(msg.timestamp)}</span>
-                          </div>
-                        )}
+                  {activeChannelMessages.map((msg) => {
+                    const isOwnMsg = msg.senderId === user?.id;
+                    const handleReplySelect = () => {
+                      let preview = msg.text;
+                      if (msg.isAttachment) {
+                        try {
+                          const payload = JSON.parse(msg.text);
+                          preview = payload.type?.startsWith('audio') ? "[Voice Message]" : "[Photo Snapshot]";
+                        } catch(e) {
+                          preview = "[Attachment]";
+                        }
+                      }
+                      setReplyToMessage({ id: msg.id, senderName: msg.senderName, text: preview });
+                    };
+
+                    return (
+                      <MessageSwipeRow key={msg.id} msg={msg} onReply={handleReplySelect}>
                         <div 
-                          className="message-bubble" 
-                          style={
-                            msg.isSystem ? {} : 
-                            msg.senderId === user?.id ? {
-                              background: 'rgba(139, 92, 246, 0.12)',
-                              border: '1px solid rgba(139, 92, 246, 0.25)',
-                              borderLeft: '4px solid #a78bfa'
-                            } : {
-                              background: 'rgba(255, 255, 255, 0.03)',
-                              border: '1px solid rgba(255, 255, 255, 0.05)',
-                              borderLeft: '4px solid rgba(255, 255, 255, 0.18)'
-                            }
-                          }
+                          id={`msg-${msg.id}`} 
+                          className={`message-bubble-wrapper ${msg.isSystem ? 'system-msg' : ''}`}
+                          style={{
+                            borderRadius: '8px',
+                            padding: '4px 8px',
+                            margin: '4px 0',
+                            transition: 'all 0.3s ease'
+                          }}
                         >
-                          {renderMessageContent(msg)}
+                          {!msg.isSystem && (
+                            <div className="message-avatar" style={{ backgroundColor: msg.senderAvatarColor || '#6366f1', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px' }}>
+                              {msg.senderAvatarUrl ? (
+                                <img src={msg.senderAvatarUrl} alt={msg.senderName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : (
+                                (msg.senderName || 'U').charAt(0).toUpperCase()
+                              )}
+                            </div>
+                          )}
+                          <div className="message-content-area" style={{ flexGrow: 1, maxWidth: '85%' }}>
+                            {!msg.isSystem && (
+                              <div className="message-meta">
+                                <span className="sender-name">{msg.senderName}</span>
+                                <span className="timestamp">{formatTime(msg.timestamp)}</span>
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+                              <div 
+                                className="message-bubble" 
+                                style={
+                                  msg.isSystem ? { width: '100%' } : 
+                                  isOwnMsg ? {
+                                    background: 'rgba(139, 92, 246, 0.12)',
+                                    border: '1px solid rgba(139, 92, 246, 0.25)',
+                                    borderLeft: '4px solid #a78bfa',
+                                    flexGrow: 1,
+                                    maxWidth: '100%'
+                                  } : {
+                                    background: 'rgba(255, 255, 255, 0.03)',
+                                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                                    borderLeft: '4px solid rgba(255, 255, 255, 0.18)',
+                                    flexGrow: 1,
+                                    maxWidth: '100%'
+                                  }
+                                }
+                              >
+                                {msg.replyTo && (
+                                  <div 
+                                    className="replied-message-quote"
+                                    style={{
+                                      background: 'rgba(0, 0, 0, 0.25)',
+                                      borderLeft: '3px solid var(--accent-primary)',
+                                      padding: '6px 10px',
+                                      borderRadius: '4px',
+                                      marginBottom: '6px',
+                                      fontSize: '12px',
+                                      cursor: 'pointer',
+                                      maxHeight: '60px',
+                                      overflow: 'hidden'
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const originalMsgElement = document.getElementById(`msg-${msg.replyTo.id}`);
+                                      if (originalMsgElement) {
+                                        originalMsgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        originalMsgElement.style.background = 'rgba(99, 102, 241, 0.25)';
+                                        originalMsgElement.style.boxShadow = '0 0 15px rgba(99, 102, 241, 0.4)';
+                                        setTimeout(() => {
+                                          originalMsgElement.style.background = '';
+                                          originalMsgElement.style.boxShadow = '';
+                                        }, 1500);
+                                      }
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: 'bold', color: 'var(--accent-primary)', fontSize: '11px', marginBottom: '2px' }}>
+                                      {msg.replyTo.senderName}
+                                    </div>
+                                    <div style={{ color: 'var(--text-secondary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                      {msg.replyTo.text}
+                                    </div>
+                                  </div>
+                                )}
+                                {renderMessageContent(msg)}
+                              </div>
+
+                              {/* Three-dots menu action for PC */}
+                              {!msg.isSystem && (
+                                <div className="message-menu-container" style={{ position: 'relative', flexShrink: 0 }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveMenuMessageId(activeMenuMessageId === msg.id ? null : msg.id);
+                                    }}
+                                    className="message-three-dots-btn"
+                                    title="Message options"
+                                    style={{
+                                      background: 'rgba(255, 255, 255, 0.05)',
+                                      border: '1px solid var(--border-light)',
+                                      borderRadius: '6px',
+                                      width: '28px',
+                                      height: '28px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      color: 'var(--text-muted)',
+                                      cursor: 'pointer',
+                                      padding: 0
+                                    }}
+                                  >
+                                    <span style={{ fontSize: '16px', fontWeight: 'bold', display: 'block', marginTop: '-8px' }}>...</span>
+                                  </button>
+                                  
+                                  {activeMenuMessageId === msg.id && (
+                                    <div 
+                                      className="message-dropdown-menu glass-panel" 
+                                      style={{
+                                        position: 'absolute',
+                                        top: '32px',
+                                        right: isOwnMsg ? 0 : 'auto',
+                                        left: isOwnMsg ? 'auto' : 0,
+                                        background: 'rgba(15, 17, 26, 0.95)',
+                                        border: '1px solid var(--border-light)',
+                                        borderRadius: '8px',
+                                        padding: '4px',
+                                        zIndex: 100,
+                                        minWidth: '100px',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                                        display: 'flex',
+                                        flexDirection: 'column'
+                                      }}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleReplySelect();
+                                          setActiveMenuMessageId(null);
+                                        }}
+                                        style={{
+                                          background: 'none',
+                                          border: 'none',
+                                          color: 'var(--text-primary)',
+                                          padding: '6px 12px',
+                                          fontSize: '13px',
+                                          textAlign: 'left',
+                                          cursor: 'pointer',
+                                          borderRadius: '4px',
+                                          width: '100%',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '8px'
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                                      >
+                                        <MessageSquare size={13} style={{ transform: 'scaleX(-1)' }} />
+                                        <span>Reply</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
+                      </MessageSwipeRow>
+                    );
+                  })}
                   <div ref={messagesEndRef} />
                 </div>
 
@@ -2027,8 +2260,68 @@ const Teams = () => {
                   </div>
                 )}
 
+                {replyToMessage && (
+                  <div className="reply-preview-bar animate-fade" style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 16px',
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    borderLeft: '4px solid var(--accent-primary)',
+                    borderRadius: '8px 8px 0 0',
+                    borderTop: '1px solid var(--border-light)',
+                    borderRight: '1px solid var(--border-light)',
+                    marginLeft: '20px',
+                    marginRight: '20px',
+                    marginTop: '10px',
+                    position: 'relative',
+                    zIndex: 10
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden', width: '90%' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-primary)' }}>
+                        Replying to {replyToMessage.senderName}
+                      </span>
+                      <span style={{ 
+                        fontSize: '12px', 
+                        color: 'var(--text-secondary)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        width: '100%'
+                      }}>
+                        {replyToMessage.text}
+                      </span>
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={() => setReplyToMessage(null)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+
                 {/* Chat Input form */}
-                <form onSubmit={handleSendMessage} className="chat-input-wrapper glass-panel">
+                <form 
+                  onSubmit={handleSendMessage} 
+                  className="chat-input-wrapper glass-panel"
+                  style={replyToMessage ? {
+                    borderTopLeftRadius: '0px',
+                    borderTopRightRadius: '0px',
+                    borderTop: 'none',
+                    marginTop: '0px'
+                  } : {}}
+                >
                   <button 
                     type="button" 
                     className="input-action-btn" 

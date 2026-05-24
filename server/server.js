@@ -724,7 +724,7 @@ io.on('connection', (socket) => {
   // Handle incoming message and broadcast to others in room
   socket.on('send_message', async (messageData) => {
     try {
-      const { teamId, channelId, text, senderId, senderName, senderAvatarColor, senderAvatarUrl, isMedia, isAttachment } = messageData;
+      const { teamId, channelId, text, senderId, senderName, senderAvatarColor, senderAvatarUrl, isMedia, isAttachment, replyTo } = messageData;
       
       if (!teamId || !channelId || !text || !senderId) {
         return;
@@ -739,7 +739,8 @@ io.on('connection', (socket) => {
         senderAvatarColor,
         senderAvatarUrl: senderAvatarUrl || '',
         isMedia: !!isMedia,
-        isAttachment: !!isAttachment
+        isAttachment: !!isAttachment,
+        replyTo: replyTo || null
       });
       
       const roomName = `${teamId}_${channelId}`;

@@ -107,7 +107,11 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     const initMedia = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: {
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 720 },
+            frameRate: { ideal: 15, max: 24 }
+          },
           audio: true
         });
         setLocalStream(stream);
@@ -453,6 +457,8 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     }
     setIsScreenSharing(false);
   };
+
+  const remoteUsers = Object.values(remoteStreams);
 
   const getMinimizedUserToRender = () => {
     if (screenShareOwner && screenShareOwner.socketId !== socket?.id) {
