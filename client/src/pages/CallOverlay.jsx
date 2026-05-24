@@ -118,6 +118,7 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       teamId,
       channelId,
       userName: currentUser.name,
+      userId: currentUser.id,
       userAvatarColor: currentUser.avatarColor,
       userAvatarUrl: currentUser.avatarUrl
     });

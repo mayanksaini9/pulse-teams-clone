@@ -333,7 +333,7 @@ const Teams = () => {
       try {
         const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/1359/1359-84.wav');
         audio.volume = 0.4;
-        audio.play();
+        audio.play().catch(err => console.warn('Audio call chime play blocked/failed:', err));
       } catch (err) {
         console.error('Audio call chime play error:', err);
       }
@@ -806,6 +806,30 @@ const Teams = () => {
     } catch (err) {
       console.error(err);
       alert('Error promoting member.');
+    }
+  };
+
+  const handleDemoteAdmin = async (memberId) => {
+    if (!window.confirm("Are you sure you want to demote this member to Member?")) return;
+    try {
+      const res = await fetch(`/api/teams/${currentTeam.id}/demote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId: memberId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        window.location.reload();
+      } else {
+        alert(data.message || 'Failed to demote member.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error demoting member.');
     }
   };
 
@@ -1468,6 +1492,7 @@ const Teams = () => {
                             channelId: currentChannel.id,
                             channelName: currentChannel.name,
                             userName: user.name,
+                            userId: user.id,
                             callType: 'voice'
                           });
                         }
@@ -1487,6 +1512,7 @@ const Teams = () => {
                             channelId: currentChannel.id,
                             channelName: currentChannel.name,
                             userName: user.name,
+                            userId: user.id,
                             callType: 'video'
                           });
                         }
@@ -1852,6 +1878,7 @@ const Teams = () => {
                       const admins = currentTeam.admins || [currentTeam.creatorId];
                       const isMemberAdmin = admins.includes(member.id);
                       const currentUserIsAdmin = admins.includes(user.id);
+                      const isMemberInCall = activeCalls.some(call => call.userIds && call.userIds.includes(member.id));
                       
                       return (
                         <div key={member.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', width: '100%' }}>
@@ -1880,6 +1907,12 @@ const Teams = () => {
                             {member.phone && (
                               <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
                                 📞 {member.phone}
+                              </span>
+                            )}
+
+                            {isMemberInCall && (
+                              <span style={{ fontSize: '10.5px', color: '#34d399', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                <Phone size={10} style={{ fill: '#34d399' }} /> In a call
                               </span>
                             )}
                           </div>
@@ -1911,6 +1944,32 @@ const Teams = () => {
                                   }}
                                 >
                                   <Shield size={12} />
+                                </button>
+                              )}
+                              {isMemberAdmin && member.id !== currentTeam.creatorId && (
+                                <button
+                                  onClick={() => handleDemoteAdmin(member.id)}
+                                  title="Demote to Admin"
+                                  style={{
+                                    background: 'rgba(245, 158, 11, 0.1)',
+                                    border: '1px solid rgba(245, 158, 11, 0.2)',
+                                    borderRadius: '4px',
+                                    color: '#fbbf24',
+                                    padding: '4px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(245, 158, 11, 0.25)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'rgba(245, 158, 11, 0.1)';
+                                  }}
+                                >
+                                  <ShieldAlert size={12} />
                                 </button>
                               )}
                               {(member.id !== currentTeam.creatorId && (!isMemberAdmin || user.id === currentTeam.creatorId)) && (

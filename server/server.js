@@ -425,6 +425,40 @@ app.post('/api/teams/:teamId/promote', authenticateToken, async (req, res) => {
   }
 });
 
+// Demote Admin to Member
+app.post('/api/teams/:teamId/demote', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { userId } = req.body;
+    const callerId = req.user.id;
+
+    const team = await database.findTeamById(teamId);
+    if (!team) return res.status(404).json({ message: 'Team not found.' });
+
+    const admins = team.admins || [team.creatorId];
+    if (!admins.includes(callerId)) {
+      return res.status(403).json({ message: 'Only team admins can demote members.' });
+    }
+
+    if (userId === team.creatorId) {
+      return res.status(400).json({ message: 'The team creator cannot be demoted.' });
+    }
+
+    if (!team.admins) team.admins = [team.creatorId];
+    if (team.admins.includes(userId)) {
+      team.admins = team.admins.filter(id => id !== userId);
+      await database.updateTeam(team);
+      // Notify all clients of update
+      io.emit('team_updated', { teamId });
+    }
+
+    res.status(200).json({ team, message: 'User demoted successfully.' });
+  } catch (error) {
+    console.error('Error demoting member:', error);
+    res.status(500).json({ message: 'Server error demoting member.' });
+  }
+});
+
 // Kick Member from Team
 app.post('/api/teams/:teamId/kick', authenticateToken, async (req, res) => {
   try {
@@ -587,13 +621,7 @@ app.post('/api/teams/:teamId/channels', authenticateToken, async (req, res) => {
 app.get('/api/teams/:teamId/active-calls', authenticateToken, (req, res) => {
   try {
     const { teamId } = req.params;
-    const activeList = Object.keys(activeCalls)
-      .filter(cId => activeCalls[cId].teamId === teamId)
-      .map(cId => ({
-        channelId: cId,
-        callType: activeCalls[cId].callType,
-        userName: activeCalls[cId].userName
-      }));
+    const activeList = getActiveCallsList(teamId);
     res.status(200).json(activeList);
   } catch (error) {
     console.error('Error fetching active calls:', error);
@@ -641,6 +669,17 @@ const io = socketIo(server, {
 });
 
 const activeCalls = {};
+
+const getActiveCallsList = (teamId) => {
+  return Object.keys(activeCalls)
+    .filter(cId => activeCalls[cId].teamId === teamId)
+    .map(cId => ({
+      channelId: cId,
+      callType: activeCalls[cId].callType,
+      userName: activeCalls[cId].userName,
+      userIds: (activeCalls[cId].participants || []).map(p => typeof p === 'object' ? p.userId : null).filter(Boolean)
+    }));
+};
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -701,7 +740,7 @@ io.on('connection', (socket) => {
 
   // --- WEBRTC CALL SIGNALING & NOTIFICATIONS ---
 
-  socket.on('start_call', ({ teamId, channelId, channelName, userName, callType }) => {
+  socket.on('start_call', ({ teamId, channelId, channelName, userName, userId, callType }) => {
     activeCalls[channelId] = {
       teamId,
       channelId,
@@ -709,7 +748,7 @@ io.on('connection', (socket) => {
       userName,
       callType,
       screenSharer: null,
-      participants: [socket.id]
+      participants: [{ socketId: socket.id, userId, userName }]
     };
 
     const teamChannelRoom = `${teamId}_${channelId}`;
@@ -724,23 +763,17 @@ io.on('connection', (socket) => {
     });
 
     // Notify everyone in the team of active call update
-    const activeList = Object.keys(activeCalls)
-      .filter(cId => activeCalls[cId].teamId === teamId)
-      .map(cId => ({
-        channelId: cId,
-        callType: activeCalls[cId].callType,
-        userName: activeCalls[cId].userName
-      }));
+    const activeList = getActiveCallsList(teamId);
     io.to(teamId).emit('active_calls_update', activeList);
 
     console.log(`Call notification sent for room: ${teamChannelRoom} (Type: ${callType})`);
   });
   
-  socket.on('join_call_room', ({ teamId, channelId, userName, userAvatarColor, userAvatarUrl }) => {
+  socket.on('join_call_room', ({ teamId, channelId, userName, userId, userAvatarColor, userAvatarUrl }) => {
     const callRoomName = `call_${teamId}_${channelId}`;
     socket.join(callRoomName);
     
-    // Track participant socket
+    // Track participant
     if (!activeCalls[channelId]) {
       activeCalls[channelId] = {
         teamId,
@@ -752,8 +785,8 @@ io.on('connection', (socket) => {
         participants: []
       };
     }
-    if (!activeCalls[channelId].participants.includes(socket.id)) {
-      activeCalls[channelId].participants.push(socket.id);
+    if (!activeCalls[channelId].participants.some(p => p.socketId === socket.id)) {
+      activeCalls[channelId].participants.push({ socketId: socket.id, userId, userName });
     }
 
     // Get all other participants in the call room
@@ -787,13 +820,7 @@ io.on('connection', (socket) => {
     }
 
     // Notify everyone in the team of active call update
-    const activeList = Object.keys(activeCalls)
-      .filter(cId => activeCalls[cId].teamId === teamId)
-      .map(cId => ({
-        channelId: cId,
-        callType: activeCalls[cId].callType,
-        userName: activeCalls[cId].userName
-      }));
+    const activeList = getActiveCallsList(teamId);
     io.to(teamId).emit('active_calls_update', activeList);
     
     console.log(`Socket ${socket.id} joined call room: ${callRoomName}`);
@@ -840,7 +867,7 @@ io.on('connection', (socket) => {
     }
 
     if (activeCalls[channelId]) {
-      activeCalls[channelId].participants = activeCalls[channelId].participants.filter(id => id !== socket.id);
+      activeCalls[channelId].participants = activeCalls[channelId].participants.filter(p => p.socketId !== socket.id);
       if (activeCalls[channelId].participants.length === 0) {
         delete activeCalls[channelId];
       }
@@ -849,30 +876,18 @@ io.on('connection', (socket) => {
     socket.to(callRoomName).emit('user_left_call', { socketId: socket.id });
     
     // Notify everyone in the team of active call update
-    const activeList = Object.keys(activeCalls)
-      .filter(cId => activeCalls[cId].teamId === teamId)
-      .map(cId => ({
-        channelId: cId,
-        callType: activeCalls[cId].callType,
-        userName: activeCalls[cId].userName
-      }));
+    const activeList = getActiveCallsList(teamId);
     io.to(teamId).emit('active_calls_update', activeList);
 
     console.log(`Socket ${socket.id} left call room: ${callRoomName}`);
   });
 
   socket.on('get_active_calls', ({ teamId }) => {
-    const activeList = Object.keys(activeCalls)
-      .filter(cId => activeCalls[cId].teamId === teamId)
-      .map(cId => ({
-        channelId: cId,
-        callType: activeCalls[cId].callType,
-        userName: activeCalls[cId].userName
-      }));
+    const activeList = getActiveCallsList(teamId);
     socket.emit('active_calls_update', activeList);
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnecting', () => {
     // Notify all rooms the socket was in that they left calls
     const rooms = Array.from(socket.rooms);
     rooms.forEach((room) => {
@@ -888,23 +903,17 @@ io.on('connection', (socket) => {
         socket.to(room).emit('user_left_call', { socketId: socket.id });
         
         if (activeCalls[channelId]) {
-          activeCalls[channelId].participants = activeCalls[channelId].participants.filter(id => id !== socket.id);
+          activeCalls[channelId].participants = activeCalls[channelId].participants.filter(p => p.socketId !== socket.id);
           const teamId = activeCalls[channelId].teamId;
           if (activeCalls[channelId].participants.length === 0) {
             delete activeCalls[channelId];
           }
-          const activeList = Object.keys(activeCalls)
-            .filter(cId => activeCalls[cId].teamId === teamId)
-            .map(cId => ({
-              channelId: cId,
-              callType: activeCalls[cId].callType,
-              userName: activeCalls[cId].userName
-            }));
+          const activeList = getActiveCallsList(teamId);
           io.to(teamId).emit('active_calls_update', activeList);
         }
       }
     });
-    console.log('User disconnected:', socket.id);
+    console.log('User disconnecting:', socket.id);
   });
 });
 
