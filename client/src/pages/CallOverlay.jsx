@@ -6,7 +6,7 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({}); // Keyed by socketId: { socketId, userName, avatarColor, stream }
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(initialCallType === 'voice');
+  const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [screenShareOwner, setScreenShareOwner] = useState(null); // { socketId, name }
   const [errorMsg, setErrorMsg] = useState('');
@@ -155,11 +155,6 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
         });
         setLocalStream(stream);
         streamRef.current = stream;
-        
-        if (initialCallType === 'voice') {
-          const videoTrack = stream.getVideoTracks()[0];
-          if (videoTrack) videoTrack.enabled = false;
-        }
 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -315,7 +310,11 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           signal: { type: 'answer', sdp: pc.localDescription }
         });
       } else if (signal.type === 'answer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        if (pc.signalingState !== 'stable') {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        } else {
+          console.warn('Ignore setting remote answer SDP because signalingState is already stable.');
+        }
         
         // Process queued ice candidates
         if (pc.iceQueue) {
