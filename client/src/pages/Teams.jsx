@@ -6,7 +6,7 @@ import {
   Search, Plus, ChevronDown, Check, User, Sparkles, Shield, Hash, 
   ArrowUpRight, TrendingUp, Calendar, Copy, Eye, EyeOff, X, Send,
   Paperclip, Smile, Users as GroupIcon, ShieldAlert, Key, ClipboardCheck,
-  Download, File as FileIcon, Menu, Mic, Camera, Code
+  Download, File as FileIcon, Menu, Mic, Camera, Code, RefreshCw
 } from 'lucide-react';
 
 import { CallOverlay } from './CallOverlay';
@@ -365,6 +365,7 @@ const Teams = () => {
   // Camera capture states
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
+  const [chatFacingMode, setChatFacingMode] = useState('user');
   const cameraVideoRef = useRef(null);
 
   const startRecording = async () => {
@@ -460,7 +461,10 @@ const Teams = () => {
       setError('');
       setTimeout(async () => {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: chatFacingMode },
+            audio: false
+          });
           setCameraStream(stream);
           if (cameraVideoRef.current) {
             cameraVideoRef.current.srcObject = stream;
@@ -473,6 +477,29 @@ const Teams = () => {
       }, 300);
     } catch (err) {
       console.error("Error showing camera modal:", err);
+    }
+  };
+
+  const toggleChatCamera = async () => {
+    const nextFacingMode = chatFacingMode === 'user' ? 'environment' : 'user';
+    setChatFacingMode(nextFacingMode);
+    
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: nextFacingMode },
+        audio: false
+      });
+      setCameraStream(stream);
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error("Error switching chat camera:", err);
+      setError("Failed to switch camera.");
     }
   };
 
@@ -3730,9 +3757,20 @@ const Teams = () => {
           <div className="modal-content-card glass-panel" style={{ maxWidth: '480px', width: '100%', position: 'relative' }}>
             <div className="modal-header">
               <h2>Capture Snapshot</h2>
-              <button onClick={stopCamera} className="close-modal-btn">
-                <X size={20} />
-              </button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button 
+                  type="button"
+                  onClick={toggleChatCamera} 
+                  className="close-modal-btn" 
+                  title="Switch Camera (Front/Back)"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <RefreshCw size={18} />
+                </button>
+                <button type="button" onClick={stopCamera} className="close-modal-btn">
+                  <X size={20} />
+                </button>
+              </div>
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>

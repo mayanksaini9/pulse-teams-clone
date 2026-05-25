@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Users, Monitor, Minimize2, Maximize2, Smile } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Users, Monitor, Minimize2, Maximize2, Smile, RefreshCw } from 'lucide-react';
 import './CallOverlay.css';
 
 export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUser, initialCallType, onClose }) => {
@@ -8,6 +8,7 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [facingMode, setFacingMode] = useState('user'); // Toggle between 'user' and 'environment'
   const [screenShareOwner, setScreenShareOwner] = useState(null); // { socketId, name }
   const [errorMsg, setErrorMsg] = useState('');
   const [duration, setDuration] = useState(0);
@@ -488,6 +489,58 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     }
   };
 
+  const switchCamera = async () => {
+    if (isScreenSharing) return; // Cannot switch camera while screen sharing
+    
+    const nextFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextFacingMode);
+
+    let audioTrack = null;
+    if (streamRef.current) {
+      audioTrack = streamRef.current.getAudioTracks()[0];
+      streamRef.current.getVideoTracks().forEach(track => track.stop());
+    }
+
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: nextFacingMode,
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 15, max: 24 }
+        },
+        audio: audioTrack ? false : true
+      });
+
+      const videoTrack = newStream.getVideoTracks()[0];
+      const tracks = [];
+      if (videoTrack) tracks.push(videoTrack);
+      if (audioTrack) {
+        tracks.push(audioTrack);
+      } else {
+        const newAudioTrack = newStream.getAudioTracks()[0];
+        if (newAudioTrack) tracks.push(newAudioTrack);
+      }
+
+      const combinedStream = new MediaStream(tracks);
+      streamRef.current = combinedStream;
+      setLocalStream(combinedStream);
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = combinedStream;
+        localVideoRef.current.play().catch(err => console.warn("Local video play failed on switch:", err));
+      }
+
+      Object.values(pcs.current).forEach(pc => {
+        addLocalTracksToPeer(pc);
+      });
+      
+    } catch (err) {
+      console.error("Error switching camera facingMode:", err);
+      setErrorMsg("Failed to access camera in requested mode.");
+    }
+  };
+
   // Toggle Screen Sharing
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
@@ -766,6 +819,16 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
         >
           {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
         </button>
+
+        {!isVideoOff && !isScreenSharing && (
+          <button 
+            onClick={switchCamera} 
+            className="control-btn"
+            title="Switch Camera (Front/Back)"
+          >
+            <RefreshCw size={20} />
+          </button>
+        )}
 
         <button 
           onClick={toggleScreenShare} 
