@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Mail, Lock, User, ArrowRight, Activity, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 
@@ -14,6 +14,30 @@ const Auth = () => {
   const [submitting, setSubmitting] = useState(false);
   const [requireVerification, setRequireVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log(`User response to install prompt: ${outcome}`);
+      setDeferredPrompt(null);
+    } else {
+      setShowInstallGuide(true);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -273,6 +297,71 @@ const Auth = () => {
               </>
             )}
           </p>
+        </div>
+
+        {/* PWA Download Section */}
+        <div className="pwa-download-section" style={{
+          marginTop: '20px',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          paddingTop: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <button 
+            type="button" 
+            onClick={handleInstallClick} 
+            className="pwa-download-btn"
+            style={{
+              background: 'rgba(99, 102, 241, 0.1)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              color: '#a5b4fc',
+              padding: '10px 20px',
+              borderRadius: '20px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s',
+              width: '100%',
+              justifyContent: 'center'
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <span>📥 Download & Install Pulse App</span>
+          </button>
+
+          <button 
+            type="button" 
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.origin);
+              alert('Install Link copied to clipboard! Share it with your friends to install the app.');
+            }}
+            className="pwa-share-btn"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.4)',
+              fontSize: '11px',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              transition: 'color 0.2s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.4)'}
+          >
+            🔗 Copy App Install Link to Share
+          </button>
         </div>
       </div>
 
@@ -538,6 +627,84 @@ const Auth = () => {
           to { transform: rotate(360deg); }
         }
       `}</style>
+
+      {showInstallGuide && (
+        <div 
+          className="install-guide-overlay" 
+          onClick={() => setShowInstallGuide(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: '20px',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+        >
+          <div 
+            className="install-guide-card" 
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#0d0e12',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '100%',
+              color: 'white',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+              textAlign: 'center'
+            }}
+          >
+            <h3 style={{ fontSize: '18px', marginBottom: '12px', color: '#818cf8', fontFamily: 'inherit' }}>How to Install Pulse</h3>
+            <p style={{ fontSize: '13px', color: '#9ca3af', lineHeight: '1.6', marginBottom: '20px' }}>
+              To download and install the Pulse app on your device:
+            </p>
+
+            <div style={{ textAlign: 'left', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '10px', fontSize: '12.5px' }}>
+                <span style={{ color: '#818cf8', fontWeight: 'bold', minWidth: '80px' }}>📱 iOS Safari</span>
+                <span style={{ color: '#d1d5db' }}>Tap the <strong>Share</strong> button (box with up arrow) at the bottom, then scroll and select <strong>"Add to Home Screen"</strong>.</span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', fontSize: '12.5px' }}>
+                <span style={{ color: '#818cf8', fontWeight: 'bold', minWidth: '80px' }}>🤖 Android</span>
+                <span style={{ color: '#d1d5db' }}>Tap the <strong>three dots</strong> in top-right, then select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.</span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', fontSize: '12.5px' }}>
+                <span style={{ color: '#818cf8', fontWeight: 'bold', minWidth: '80px' }}>💻 Desktop</span>
+                <span style={{ color: '#d1d5db' }}>Click the <strong>Install</strong> monitor icon on the right side of the address bar.</span>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowInstallGuide(false)}
+              style={{
+                background: '#4f46e5',
+                color: 'white',
+                border: 'none',
+                padding: '10px 24px',
+                borderRadius: '8px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                fontSize: '13px',
+                width: '100%',
+                transition: 'background 0.2s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = '#4338ca'}
+              onMouseLeave={e => e.currentTarget.style.background = '#4f46e5'}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
