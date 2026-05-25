@@ -114,31 +114,77 @@ const isMongoConnected = () => {
   return mongoose.connection.readyState === 1;
 };
 
+const normalizeUser = (u) => {
+  if (!u) return null;
+  const userObj = typeof u.toObject === 'function' ? u.toObject() : { ...u };
+  if (!userObj.id && userObj._id) {
+    userObj.id = userObj._id.toString();
+  }
+  return userObj;
+};
+
+const normalizeTeam = (t) => {
+  if (!t) return null;
+  const teamObj = typeof t.toObject === 'function' ? t.toObject() : { ...t };
+  if (!teamObj.id && teamObj._id) {
+    teamObj.id = teamObj._id.toString();
+  }
+  if (teamObj.members) {
+    teamObj.members = teamObj.members.map(m => m.toString());
+  }
+  if (teamObj.admins) {
+    teamObj.admins = teamObj.admins.map(m => m.toString());
+  }
+  if (teamObj.creatorId) {
+    teamObj.creatorId = teamObj.creatorId.toString();
+  }
+  return teamObj;
+};
+
+const normalizeMessage = (m) => {
+  if (!m) return null;
+  const msgObj = typeof m.toObject === 'function' ? m.toObject() : { ...m };
+  if (!msgObj.id && msgObj._id) {
+    msgObj.id = msgObj._id.toString();
+  }
+  if (msgObj.senderId) {
+    msgObj.senderId = msgObj.senderId.toString();
+  }
+  return msgObj;
+};
+
 const database = {
   getUsers: async () => {
     if (isMongoConnected()) {
-      return await User.find({}).lean();
+      const users = await User.find({}).lean();
+      return users.map(normalizeUser);
     } else {
-      return readData('users');
+      return readData('users').map(normalizeUser);
     }
   },
   
   findUserByEmail: async (email) => {
     if (!email) return null;
     if (isMongoConnected()) {
-      return await User.findOne({ email: email.toLowerCase() }).lean();
+      const user = await User.findOne({ email: email.toLowerCase() }).lean();
+      return normalizeUser(user);
     } else {
       const users = readData('users');
-      return users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
+      const user = users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
+      return normalizeUser(user);
     }
   },
 
   findUserById: async (id) => {
+    if (!id) return null;
     if (isMongoConnected()) {
-      return await User.findOne({ id }).lean();
+      const query = mongoose.Types.ObjectId.isValid(id) ? { $or: [{ id }, { _id: id }] } : { id };
+      const user = await User.findOne(query).lean();
+      return normalizeUser(user);
     } else {
       const users = readData('users');
-      return users.find(u => u.id === id) || null;
+      const user = users.find(u => u.id === id || u._id === id) || null;
+      return normalizeUser(user);
     }
   },
 
@@ -148,7 +194,6 @@ const database = {
     const cleanEmail = userData.email.toLowerCase();
     
     if (!isAlreadyVerified) {
-      // Trigger real email send (runs in background so it doesn't block request)
       sendVerificationEmail(cleanEmail, verificationToken).catch(err => {
         console.error('Failed to send verification email in background:', err);
       });
@@ -163,16 +208,7 @@ const database = {
         verificationToken
       });
       await newUser.save();
-      
-      if (!isAlreadyVerified) {
-        console.log(`\n======================================================`);
-        console.log(`[EMAIL VERIFICATION (MONGODB)]`);
-        console.log(`Email: ${cleanEmail}`);
-        console.log(`Verification Code: ${verificationToken}`);
-        console.log(`======================================================\n`);
-      }
-      
-      return newUser.toObject();
+      return normalizeUser(newUser.toObject());
     } else {
       const users = readData('users');
       const newUser = {
@@ -193,16 +229,7 @@ const database = {
       };
       users.push(newUser);
       writeData('users', users);
-      
-      if (!isAlreadyVerified) {
-        console.log(`\n======================================================`);
-        console.log(`[EMAIL VERIFICATION (JSON FILE FALLBACK)]`);
-        console.log(`Email: ${cleanEmail}`);
-        console.log(`Verification Code: ${verificationToken}`);
-        console.log(`======================================================\n`);
-      }
-      
-      return newUser;
+      return normalizeUser(newUser);
     }
   },
 
@@ -219,7 +246,7 @@ const database = {
       user.verified = true;
       user.verificationToken = '';
       await user.save();
-      return user.toObject();
+      return normalizeUser(user.toObject());
     } else {
       const users = readData('users');
       const userIndex = users.findIndex(u => u.email.toLowerCase() === cleanEmail);
@@ -232,51 +259,55 @@ const database = {
       users[userIndex].verified = true;
       users[userIndex].verificationToken = '';
       writeData('users', users);
-      return users[userIndex];
+      return normalizeUser(users[userIndex]);
     }
   },
 
   getTeams: async () => {
     if (isMongoConnected()) {
-      return await Team.find({}).lean();
+      const teams = await Team.find({}).lean();
+      return teams.map(normalizeTeam);
     } else {
-      return readData('teams');
+      return readData('teams').map(normalizeTeam);
     }
   },
   
   findTeamById: async (id) => {
+    if (!id) return null;
     if (isMongoConnected()) {
-      const team = await Team.findOne({ id }).lean();
+      const query = mongoose.Types.ObjectId.isValid(id) ? { $or: [{ id }, { _id: id }] } : { id };
+      const team = await Team.findOne(query).lean();
       if (team) {
         if (!team.admins || team.admins.length === 0) team.admins = [team.creatorId];
         if (!team.theme) team.theme = 'default';
       }
-      return team;
+      return normalizeTeam(team);
     } else {
       const teams = readData('teams');
-      const team = teams.find(t => t.id === id) || null;
+      const team = teams.find(t => t.id === id || t._id === id) || null;
       if (team) {
         if (!team.admins || team.admins.length === 0) team.admins = [team.creatorId];
         if (!team.theme) team.theme = 'default';
       }
-      return team;
+      return normalizeTeam(team);
     }
   },
 
   findTeamsForUser: async (userId) => {
+    if (!userId) return [];
     if (isMongoConnected()) {
       const teams = await Team.find({ members: userId }).lean();
       return teams.map(t => {
         if (!t.admins || t.admins.length === 0) t.admins = [t.creatorId];
         if (!t.theme) t.theme = 'default';
-        return t;
+        return normalizeTeam(t);
       });
     } else {
       const teams = readData('teams');
       return teams.filter(t => t.members.includes(userId)).map(t => {
         if (!t.admins || t.admins.length === 0) t.admins = [t.creatorId];
         if (!t.theme) t.theme = 'default';
-        return t;
+        return normalizeTeam(t);
       });
     }
   },
@@ -301,7 +332,7 @@ const database = {
         channels
       });
       await newTeam.save();
-      return newTeam.toObject();
+      return normalizeTeam(newTeam.toObject());
     } else {
       const teams = readData('teams');
       const newTeam = {
@@ -317,20 +348,23 @@ const database = {
       };
       teams.push(newTeam);
       writeData('teams', teams);
-      return newTeam;
+      return normalizeTeam(newTeam);
     }
   },
 
   joinTeam: async (teamId, passcode, userId) => {
+    if (!teamId || !userId) throw new Error('Team ID and User ID are required');
     if (isMongoConnected()) {
       const team = await Team.findOne({ id: teamId });
       if (!team) throw new Error('Team not found. Please verify the Team ID.');
       if (team.passcode !== passcode) throw new Error('Incorrect passcode. Please try again.');
-      if (team.members.includes(userId)) throw new Error('You are already a member of this team.');
+      
+      const normalizedTeam = normalizeTeam(team.toObject());
+      if (normalizedTeam.members.includes(userId)) throw new Error('You are already a member of this team.');
       
       team.members.push(userId);
       await team.save();
-      return team.toObject();
+      return normalizeTeam(team.toObject());
     } else {
       const teams = readData('teams');
       const teamIndex = teams.findIndex(t => t.id === teamId);
@@ -338,20 +372,25 @@ const database = {
       
       const team = teams[teamIndex];
       if (team.passcode !== passcode) throw new Error('Incorrect passcode. Please try again.');
-      if (team.members.includes(userId)) throw new Error('You are already a member of this team.');
+      
+      const normalizedTeam = normalizeTeam(team);
+      if (normalizedTeam.members.includes(userId)) throw new Error('You are already a member of this team.');
       
       team.members.push(userId);
       teams[teamIndex] = team;
       writeData('teams', teams);
-      return team;
+      return normalizeTeam(team);
     }
   },
 
   leaveTeam: async (teamId, userId) => {
+    if (!teamId || !userId) throw new Error('Team ID and User ID are required');
     if (isMongoConnected()) {
       const team = await Team.findOne({ id: teamId });
       if (!team) throw new Error('Team not found.');
-      if (!team.members.includes(userId)) throw new Error('You are not a member of this team.');
+      
+      const normalizedTeam = normalizeTeam(team.toObject());
+      if (!normalizedTeam.members.includes(userId)) throw new Error('You are not a member of this team.');
       
       team.members = team.members.filter(m => m !== userId);
       if (team.members.length === 0) {
@@ -363,14 +402,15 @@ const database = {
         }
         await team.save();
       }
-      return team.toObject();
+      return normalizeTeam(team.toObject());
     } else {
       const teams = readData('teams');
       const teamIndex = teams.findIndex(t => t.id === teamId);
       if (teamIndex === -1) throw new Error('Team not found.');
       
       const team = teams[teamIndex];
-      if (!team.members.includes(userId)) throw new Error('You are not a member of this team.');
+      const normalizedTeam = normalizeTeam(team);
+      if (!normalizedTeam.members.includes(userId)) throw new Error('You are not a member of this team.');
       
       team.members = team.members.filter(m => m !== userId);
       if (team.members.length === 0) {
@@ -384,7 +424,7 @@ const database = {
         teams[teamIndex] = team;
         writeData('teams', teams);
       }
-      return team;
+      return normalizeTeam(team);
     }
   },
 
@@ -406,10 +446,11 @@ const database = {
 
   getMessages: async (teamId, channelId) => {
     if (isMongoConnected()) {
-      return await Message.find({ teamId, channelId }).sort({ timestamp: 1 }).lean();
+      const messages = await Message.find({ teamId, channelId }).sort({ timestamp: 1 }).lean();
+      return messages.map(normalizeMessage);
     } else {
       const messages = readData('messages');
-      return messages.filter(m => m.teamId === teamId && m.channelId === channelId);
+      return messages.filter(m => m.teamId === teamId && m.channelId === channelId).map(normalizeMessage);
     }
   },
 
@@ -420,7 +461,7 @@ const database = {
         ...messageData
       });
       await newMsg.save();
-      return newMsg.toObject();
+      return normalizeMessage(newMsg.toObject());
     } else {
       const messages = readData('messages');
       const newMsg = {
@@ -430,7 +471,7 @@ const database = {
       };
       messages.push(newMsg);
       writeData('messages', messages);
-      return newMsg;
+      return normalizeMessage(newMsg);
     }
   },
 
@@ -464,15 +505,17 @@ const database = {
   },
 
   updateUser: async (userId, updateData) => {
+    if (!userId) throw new Error('User ID is required');
     if (isMongoConnected()) {
-      const user = await User.findOne({ id: userId });
+      const query = mongoose.Types.ObjectId.isValid(userId) ? { $or: [{ id: userId }, { _id: userId }] } : { id: userId };
+      const user = await User.findOne(query);
       if (!user) throw new Error('User not found');
       Object.assign(user, updateData, { updatedAt: new Date() });
       await user.save();
-      return user.toObject();
+      return normalizeUser(user.toObject());
     } else {
       const users = readData('users');
-      const index = users.findIndex(u => u.id === userId);
+      const index = users.findIndex(u => u.id === userId || u._id === userId);
       if (index === -1) throw new Error('User not found');
       
       users[index] = {
@@ -481,24 +524,34 @@ const database = {
         updatedAt: new Date().toISOString()
       };
       writeData('users', users);
-      return users[index];
+      return normalizeUser(users[index]);
     }
   },
 
   getTeamMembers: async (teamId) => {
+    if (!teamId) return [];
     if (isMongoConnected()) {
-      const team = await Team.findOne({ id: teamId }).lean();
+      const query = mongoose.Types.ObjectId.isValid(teamId) ? { $or: [{ id: teamId }, { _id: teamId }] } : { id: teamId };
+      const team = await Team.findOne(query).lean();
       if (!team) return [];
-      const users = await User.find({ id: { $in: team.members } }).lean();
-      return users.map(({ password, verificationToken, ...u }) => u);
+      const normalizedTeam = normalizeTeam(team);
+      const users = await User.find({ $or: [{ id: { $in: normalizedTeam.members } }, { _id: { $in: normalizedTeam.members } }] }).lean();
+      return users.map(u => {
+        const { password, verificationToken, ...safeUser } = normalizeUser(u);
+        return safeUser;
+      });
     } else {
       const teams = readData('teams');
-      const team = teams.find(t => t.id === teamId);
+      const team = teams.find(t => t.id === teamId || t._id === teamId);
       if (!team) return [];
+      const normalizedTeam = normalizeTeam(team);
       const users = readData('users');
       return users
-        .filter(u => team.members.includes(u.id))
-        .map(({ password, verificationToken, ...u }) => u);
+        .filter(u => normalizedTeam.members.includes(u.id) || normalizedTeam.members.includes(u._id))
+        .map(u => {
+          const { password, verificationToken, ...safeUser } = normalizeUser(u);
+          return safeUser;
+        });
     }
   },
 
@@ -523,22 +576,29 @@ const database = {
       return installObj.count;
     }
   },
+  
   findMessageById: async (id) => {
+    if (!id) return null;
     if (isMongoConnected()) {
-      return await Message.findOne({ id }).lean();
+      const query = mongoose.Types.ObjectId.isValid(id) ? { $or: [{ id }, { _id: id }] } : { id };
+      const msg = await Message.findOne(query).lean();
+      return normalizeMessage(msg);
     } else {
       const messages = readData('messages');
-      return messages.find(m => m.id === id);
+      const msg = messages.find(m => m.id === id || m._id === id);
+      return normalizeMessage(msg);
     }
   },
 
   deleteMessage: async (messageId) => {
+    if (!messageId) return false;
     if (isMongoConnected()) {
-      const result = await Message.deleteOne({ id: messageId });
+      const query = mongoose.Types.ObjectId.isValid(messageId) ? { $or: [{ id: messageId }, { _id: messageId }] } : { id: messageId };
+      const result = await Message.deleteOne(query);
       return result.deletedCount > 0;
     } else {
       const messages = readData('messages');
-      const filtered = messages.filter(m => m.id !== messageId);
+      const filtered = messages.filter(m => m.id !== messageId && m._id !== messageId);
       writeData('messages', filtered);
       return messages.length !== filtered.length;
     }
