@@ -296,7 +296,10 @@ const database = {
   findTeamsForUser: async (userId) => {
     if (!userId) return [];
     if (isMongoConnected()) {
-      const teams = await Team.find({ members: userId }).lean();
+      const query = mongoose.Types.ObjectId.isValid(userId)
+        ? { $or: [{ members: userId }, { members: new mongoose.Types.ObjectId(userId) }] }
+        : { members: userId };
+      const teams = await Team.find(query).lean();
       return teams.map(t => {
         if (!t.admins || t.admins.length === 0) t.admins = [t.creatorId];
         if (!t.theme) t.theme = 'default';
@@ -392,12 +395,12 @@ const database = {
       const normalizedTeam = normalizeTeam(team.toObject());
       if (!normalizedTeam.members.includes(userId)) throw new Error('You are not a member of this team.');
       
-      team.members = team.members.filter(m => m !== userId);
+      team.members = team.members.filter(m => m.toString() !== userId.toString());
       if (team.members.length === 0) {
         await Team.deleteOne({ id: teamId });
         return null;
       } else {
-        if (team.creatorId === userId) {
+        if (team.creatorId.toString() === userId.toString()) {
           team.creatorId = team.members[0];
         }
         await team.save();
@@ -412,13 +415,13 @@ const database = {
       const normalizedTeam = normalizeTeam(team);
       if (!normalizedTeam.members.includes(userId)) throw new Error('You are not a member of this team.');
       
-      team.members = team.members.filter(m => m !== userId);
+      team.members = team.members.filter(m => m.toString() !== userId.toString());
       if (team.members.length === 0) {
         teams.splice(teamIndex, 1);
         writeData('teams', teams);
         return null;
       } else {
-        if (team.creatorId === userId) {
+        if (team.creatorId.toString() === userId.toString()) {
           team.creatorId = team.members[0];
         }
         teams[teamIndex] = team;
@@ -535,7 +538,15 @@ const database = {
       const team = await Team.findOne(query).lean();
       if (!team) return [];
       const normalizedTeam = normalizeTeam(team);
-      const users = await User.find({ $or: [{ id: { $in: normalizedTeam.members } }, { _id: { $in: normalizedTeam.members } }] }).lean();
+      const validObjectIds = normalizedTeam.members.filter(m => mongoose.Types.ObjectId.isValid(m));
+      const membersQuery = [
+        { id: { $in: normalizedTeam.members } }
+      ];
+      if (validObjectIds.length > 0) {
+        membersQuery.push({ _id: { $in: validObjectIds } });
+        membersQuery.push({ _id: { $in: validObjectIds.map(id => new mongoose.Types.ObjectId(id)) } });
+      }
+      const users = await User.find({ $or: membersQuery }).lean();
       return users.map(u => {
         const { password, verificationToken, ...safeUser } = normalizeUser(u);
         return safeUser;
