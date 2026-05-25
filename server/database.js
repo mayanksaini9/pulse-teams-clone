@@ -94,6 +94,12 @@ const User = mongoose.models.User || mongoose.model('User', UserSchema);
 const Team = mongoose.models.Team || mongoose.model('Team', TeamSchema);
 const Message = mongoose.models.Message || mongoose.model('Message', MessageSchema);
 
+const PwaStatsSchema = new mongoose.Schema({
+  key: { type: String, default: 'install_count', unique: true },
+  count: { type: Number, default: 0 }
+});
+const PwaStats = mongoose.models.PwaStats || mongoose.model('PwaStats', PwaStatsSchema);
+
 // Helper to determine if we should use MongoDB or JSON files
 const isMongoConnected = () => {
   // If explicitly configured with MONGODB_URI (e.g. in production), we MUST use MongoDB
@@ -101,8 +107,8 @@ const isMongoConnected = () => {
   if (process.env.MONGODB_URI) {
     return true;
   }
-  // Fall back only if disconnected (readyState 0)
-  return mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2;
+  // Otherwise, only use MongoDB if it is fully connected (readyState 1)
+  return mongoose.connection.readyState === 1;
 };
 
 const database = {
@@ -495,16 +501,12 @@ const database = {
 
   incrementPwaInstallCount: async () => {
     if (isMongoConnected()) {
-      const PwaStatsSchema = mongoose.models.PwaStats || mongoose.model('PwaStats', new mongoose.Schema({
-        key: { type: String, default: 'install_count' },
-        count: { type: Number, default: 0 }
-      }));
-      await PwaStatsSchema.updateOne(
+      await PwaStats.updateOne(
         { key: 'install_count' },
         { $inc: { count: 1 } },
         { upsert: true }
       );
-      const doc = await PwaStatsSchema.findOne({ key: 'install_count' }).lean();
+      const doc = await PwaStats.findOne({ key: 'install_count' }).lean();
       return doc ? doc.count : 1;
     } else {
       const stats = readData('stats');
@@ -521,11 +523,7 @@ const database = {
 
   getPwaInstallCount: async () => {
     if (isMongoConnected()) {
-      const PwaStatsSchema = mongoose.models.PwaStats || mongoose.model('PwaStats', new mongoose.Schema({
-        key: { type: String, default: 'install_count' },
-        count: { type: Number, default: 0 }
-      }));
-      const doc = await PwaStatsSchema.findOne({ key: 'install_count' }).lean();
+      const doc = await PwaStats.findOne({ key: 'install_count' }).lean();
       return doc ? doc.count : 0;
     } else {
       const stats = readData('stats');
