@@ -1,4 +1,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+if (process.env.MONGODB_URI) {
+  process.env.MONGODB_URI = process.env.MONGODB_URI.trim();
+}
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -14,7 +17,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Connect to MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/pulse-teams';
+const MONGODB_URI = (process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/pulse-teams').trim();
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('Connected to MongoDB successfully');

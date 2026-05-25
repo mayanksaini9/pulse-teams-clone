@@ -1,6 +1,9 @@
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+if (process.env.MONGODB_URI) {
+  process.env.MONGODB_URI = process.env.MONGODB_URI.trim();
+}
 const { sendVerificationEmail } = require('./email');
 
 // --- JSON File Fallback Setup ---
