@@ -111,6 +111,73 @@ app.get('/api/stats/pwa-install', async (req, res) => {
   }
 });
 
+// Database Debug endpoint
+app.get('/api/debug/db-status', async (req, res) => {
+  try {
+    let mongoUri = process.env.MONGODB_URI || 'not set';
+    if (mongoUri !== 'not set') {
+      // mask credentials
+      mongoUri = mongoUri.replace(/\/\/.*@/, '//***:***@');
+    }
+    
+    // Check ready state
+    const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+    const readyState = mongoose.connection.readyState;
+    const readyStateStr = states[readyState] || 'unknown';
+
+    // Try to get counts
+    let mongoCounts = { users: 0, teams: 0, messages: 0 };
+    let jsonCounts = { users: 0, teams: 0, messages: 0 };
+    let activeEngine = 'JSON Files (Fallback)';
+
+    // Get JSON counts safely
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const dataDir = path.join(__dirname, 'data');
+      const readJsonCount = (file) => {
+        const filePath = path.join(dataDir, `${file}.json`);
+        if (fs.existsSync(filePath)) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          const data = JSON.parse(content);
+          return Array.isArray(data) ? data.length : 0;
+        }
+        return 0;
+      };
+      jsonCounts = {
+        users: readJsonCount('users'),
+        teams: readJsonCount('teams'),
+        messages: readJsonCount('messages')
+      };
+    } catch (e) {
+      console.error('Error reading JSON debug files:', e);
+    }
+
+    if (readyState === 1) {
+      activeEngine = 'MongoDB';
+      try {
+        mongoCounts.users = await mongoose.model('User').countDocuments();
+        mongoCounts.teams = await mongoose.model('Team').countDocuments();
+        mongoCounts.messages = await mongoose.model('Message').countDocuments();
+      } catch (e) {
+        console.error('Error fetching Mongo doc counts:', e);
+      }
+    }
+
+    res.json({
+      activeEngine,
+      mongooseReadyState: readyState,
+      mongooseReadyStateStr: readyStateStr,
+      hasEnvMongoUri: !!process.env.MONGODB_URI,
+      maskedMongoUri: mongoUri,
+      jsonCounts,
+      mongoCounts
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Auth Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
