@@ -280,12 +280,26 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       }
 
       if (signal.type === 'offer') {
-        // Add tracks if not added already
-        if (pc.getSenders().length === 0) {
-          addLocalTracksToPeer(pc);
-        }
+        const polite = socket.id < senderSocketId;
+        const offerCollision = (pc.signalingState !== 'stable');
         
-        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        if (offerCollision) {
+          if (!polite) {
+            console.log('Offer collision detected and I am impolite. Ignoring remote offer.');
+            return;
+          }
+          console.log('Offer collision detected and I am polite. Rolling back local offer and accepting remote offer.');
+          await Promise.all([
+            pc.setLocalDescription({ type: 'rollback' }),
+            pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
+          ]);
+        } else {
+          // Add tracks if not added already
+          if (pc.getSenders().length === 0) {
+            addLocalTracksToPeer(pc);
+          }
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        }
         
         // Process queued ice candidates
         if (pc.iceQueue) {
@@ -428,28 +442,17 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
 
     pc.ontrack = (event) => {
       console.log('Received remote track from:', socketId, event.track.kind);
-      setRemoteStreams(prev => {
-        const existing = prev[socketId];
-        let streamToUse;
-        if (existing && existing.stream) {
-          const tracks = existing.stream.getTracks();
-          if (!tracks.some(t => t.id === event.track.id)) {
-            tracks.push(event.track);
-          }
-          streamToUse = new MediaStream(tracks);
-        } else {
-          streamToUse = event.streams[0] || new MediaStream([event.track]);
+      const streamToUse = event.streams[0] || new MediaStream([event.track]);
+      setRemoteStreams(prev => ({
+        ...prev,
+        [socketId]: {
+          socketId,
+          userName,
+          avatarColor,
+          stream: streamToUse,
+          lastUpdated: Date.now()
         }
-        return {
-          ...prev,
-          [socketId]: {
-            socketId,
-            userName,
-            avatarColor,
-            stream: streamToUse
-          }
-        };
-      });
+      }));
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -847,8 +850,9 @@ const VideoFeedCard = ({ user, isFeatured }) => {
   useEffect(() => {
     if (videoRef.current && user.stream) {
       videoRef.current.srcObject = user.stream;
+      videoRef.current.play().catch(err => console.warn("Remote video play interrupted:", err));
     }
-  }, [user.stream]);
+  }, [user.stream, user.lastUpdated]);
 
   const hasVideoTrack = user.stream && user.stream.getVideoTracks().length > 0 && user.stream.getVideoTracks()[0].enabled;
 
@@ -869,6 +873,7 @@ const VideoFeedCard = ({ user, isFeatured }) => {
             if (el.srcObject !== user.stream) {
               el.srcObject = user.stream;
             }
+            el.play().catch(err => console.warn("Remote video play interrupted in ref callback:", err));
           }
         }} 
         autoPlay 
