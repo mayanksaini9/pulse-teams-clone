@@ -16,15 +16,45 @@ const Auth = () => {
   const [verificationCode, setVerificationCode] = useState('');
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [installCount, setInstallCount] = useState(0);
 
   useEffect(() => {
+    // Fetch initial install count
+    fetch('/api/stats/pwa-install')
+      .then(res => res.json())
+      .then(data => {
+        if (data && typeof data.count === 'number') {
+          setInstallCount(data.count);
+        }
+      })
+      .catch(err => console.warn('Failed to fetch PWA install stats:', err));
+
     const handleBeforeInstallPrompt = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
     };
+
+    const handleAppInstalled = () => {
+      console.log('Pulse PWA was installed');
+      fetch('/api/stats/pwa-install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data && typeof data.count === 'number') {
+            setInstallCount(data.count);
+          }
+        })
+        .catch(err => console.error('Failed to log PWA install on backend:', err));
+    };
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -338,7 +368,7 @@ const Auth = () => {
               e.currentTarget.style.transform = 'translateY(0)';
             }}
           >
-            <span>📥 Download & Install Pulse App</span>
+            <span>📥 Download & Install Pulse App {installCount > 0 && `(${installCount} installs)`}</span>
           </button>
 
           <button 

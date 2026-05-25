@@ -485,6 +485,47 @@ const database = {
         .filter(u => team.members.includes(u.id))
         .map(({ password, verificationToken, ...u }) => u);
     }
+  },
+
+  incrementPwaInstallCount: async () => {
+    if (isMongoConnected()) {
+      const PwaStatsSchema = mongoose.models.PwaStats || mongoose.model('PwaStats', new mongoose.Schema({
+        key: { type: String, default: 'install_count' },
+        count: { type: Number, default: 0 }
+      }));
+      await PwaStatsSchema.updateOne(
+        { key: 'install_count' },
+        { $inc: { count: 1 } },
+        { upsert: true }
+      );
+      const doc = await PwaStatsSchema.findOne({ key: 'install_count' }).lean();
+      return doc ? doc.count : 1;
+    } else {
+      const stats = readData('stats');
+      let installObj = stats.find(s => s.key === 'install_count');
+      if (!installObj) {
+        installObj = { key: 'install_count', count: 0 };
+        stats.push(installObj);
+      }
+      installObj.count += 1;
+      writeData('stats', stats);
+      return installObj.count;
+    }
+  },
+
+  getPwaInstallCount: async () => {
+    if (isMongoConnected()) {
+      const PwaStatsSchema = mongoose.models.PwaStats || mongoose.model('PwaStats', new mongoose.Schema({
+        key: { type: String, default: 'install_count' },
+        count: { type: Number, default: 0 }
+      }));
+      const doc = await PwaStatsSchema.findOne({ key: 'install_count' }).lean();
+      return doc ? doc.count : 0;
+    } else {
+      const stats = readData('stats');
+      const installObj = stats.find(s => s.key === 'install_count');
+      return installObj ? installObj.count : 0;
+    }
   }
 };
 

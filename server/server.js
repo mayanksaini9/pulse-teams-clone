@@ -90,6 +90,27 @@ app.get('/api/gifs/search', async (req, res) => {
   res.json([]);
 });
 
+// PWA installation tracking endpoints
+app.post('/api/stats/pwa-install', async (req, res) => {
+  try {
+    const newCount = await database.incrementPwaInstallCount();
+    console.log(`[PWA STATUS] New PWA Installation tracked! Total installs: ${newCount}`);
+    res.json({ success: true, count: newCount });
+  } catch (err) {
+    console.error('Error tracking PWA installation:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/stats/pwa-install', async (req, res) => {
+  try {
+    const count = await database.getPwaInstallCount();
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Auth Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
