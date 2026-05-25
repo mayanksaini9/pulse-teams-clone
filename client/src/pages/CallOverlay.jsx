@@ -397,16 +397,29 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     };
 
     pc.ontrack = (event) => {
-      console.log('Received remote track from:', socketId, event.streams[0]);
-      setRemoteStreams(prev => ({
-        ...prev,
-        [socketId]: {
-          socketId,
-          userName,
-          avatarColor,
-          stream: event.streams[0]
+      console.log('Received remote track from:', socketId, event.track.kind);
+      setRemoteStreams(prev => {
+        const existing = prev[socketId];
+        let streamToUse;
+        if (existing && existing.stream) {
+          const tracks = existing.stream.getTracks();
+          if (!tracks.some(t => t.id === event.track.id)) {
+            tracks.push(event.track);
+          }
+          streamToUse = new MediaStream(tracks);
+        } else {
+          streamToUse = event.streams[0] || new MediaStream([event.track]);
         }
-      }));
+        return {
+          ...prev,
+          [socketId]: {
+            socketId,
+            userName,
+            avatarColor,
+            stream: streamToUse
+          }
+        };
+      });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -627,7 +640,10 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
                   ref={el => {
                     localVideoRef.current = el;
                     if (el) {
-                      el.srcObject = screenStreamRef.current || localStream;
+                      const expectedStream = screenStreamRef.current || localStream;
+                      if (el.srcObject !== expectedStream) {
+                        el.srcObject = expectedStream;
+                      }
                     }
                   }} 
                   autoPlay 
@@ -656,7 +672,10 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
                 ref={el => {
                   localVideoRef.current = el;
                   if (el) {
-                    el.srcObject = screenStreamRef.current || localStream;
+                    const expectedStream = screenStreamRef.current || localStream;
+                    if (el.srcObject !== expectedStream) {
+                      el.srcObject = expectedStream;
+                    }
                   }
                 }} 
                 autoPlay 
@@ -829,7 +848,9 @@ const VideoFeedCard = ({ user, isFeatured }) => {
         ref={el => {
           videoRef.current = el;
           if (el && user.stream) {
-            el.srcObject = user.stream;
+            if (el.srcObject !== user.stream) {
+              el.srcObject = user.stream;
+            }
           }
         }} 
         autoPlay 
