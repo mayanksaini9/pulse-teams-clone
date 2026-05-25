@@ -523,6 +523,26 @@ const database = {
       return installObj.count;
     }
   },
+  findMessageById: async (id) => {
+    if (isMongoConnected()) {
+      return await Message.findOne({ id }).lean();
+    } else {
+      const messages = readData('messages');
+      return messages.find(m => m.id === id);
+    }
+  },
+
+  deleteMessage: async (messageId) => {
+    if (isMongoConnected()) {
+      const result = await Message.deleteOne({ id: messageId });
+      return result.deletedCount > 0;
+    } else {
+      const messages = readData('messages');
+      const filtered = messages.filter(m => m.id !== messageId);
+      writeData('messages', filtered);
+      return messages.length !== filtered.length;
+    }
+  },
 
   getPwaInstallCount: async () => {
     if (isMongoConnected()) {

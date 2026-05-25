@@ -99,6 +99,17 @@ export const TeamProvider = ({ children }) => {
         }));
       });
 
+      // Handle real-time message deletion
+      newSocket.on('message_deleted', ({ messageId }) => {
+        setMessages(prev => {
+          const updated = {};
+          Object.keys(prev).forEach(key => {
+            updated[key] = (prev[key] || []).filter(m => m.id !== messageId);
+          });
+          return updated;
+        });
+      });
+
       // Handle real-time channel creation
       newSocket.on('channel_created', ({ teamId, channel }) => {
         setTeams(prevTeams => prevTeams.map(t => {
@@ -323,6 +334,16 @@ export const TeamProvider = ({ children }) => {
     });
   };
 
+  const deleteMessage = (messageId) => {
+    if (!socket || !currentTeam || !currentChannel || !user) return;
+    socket.emit('delete_message', {
+      teamId: currentTeam.id,
+      channelId: currentChannel.id,
+      messageId: messageId,
+      senderId: user.id
+    });
+  };
+
   const selectTeam = (team) => {
     setCurrentTeam(team);
     if (team && team.channels && team.channels.length > 0) {
@@ -381,6 +402,7 @@ export const TeamProvider = ({ children }) => {
       joinExistingTeam,
       createChannel,
       sendMessage,
+      deleteMessage,
       leaveTeam,
       socket,
       setCurrentTeam: selectTeam,

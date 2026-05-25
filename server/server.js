@@ -1017,6 +1017,30 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle message deletion (unsend)
+  socket.on('delete_message', async ({ teamId, channelId, messageId, senderId }) => {
+    try {
+      if (!messageId || !senderId) return;
+      
+      const msg = await database.findMessageById(messageId);
+      if (!msg) return;
+      
+      // Verify authorization: only sender can unsend their own messages
+      if (msg.senderId !== senderId) {
+        socket.emit('delete_error', { message: 'You can only unsend your own messages.' });
+        return;
+      }
+      
+      const deleted = await database.deleteMessage(messageId);
+      if (deleted) {
+        const roomName = `${teamId}_${channelId}`;
+        io.to(roomName).emit('message_deleted', { messageId });
+      }
+    } catch (err) {
+      console.error('Socket error in delete_message:', err);
+    }
+  });
+
   // --- WEBRTC CALL SIGNALING & NOTIFICATIONS ---
 
   socket.on('start_call', ({ teamId, channelId, channelName, userName, userId, callType }) => {

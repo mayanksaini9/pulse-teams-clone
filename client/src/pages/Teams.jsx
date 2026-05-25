@@ -6,7 +6,7 @@ import {
   Search, Plus, ChevronDown, Check, User, Sparkles, Shield, Hash, 
   ArrowUpRight, TrendingUp, Calendar, Copy, Eye, EyeOff, X, Send,
   Paperclip, Smile, Users as GroupIcon, ShieldAlert, Key, ClipboardCheck,
-  Download, File as FileIcon, Menu, Mic, Camera, Code, RefreshCw
+  Download, File as FileIcon, Menu, Mic, Camera, Code, RefreshCw, Trash2
 } from 'lucide-react';
 
 import { CallOverlay } from './CallOverlay';
@@ -227,6 +227,7 @@ const Teams = () => {
     setCurrentChannel,
     messages,
     sendMessage,
+    deleteMessage,
     members,
     leaveTeam,
     socket,
@@ -2407,6 +2408,36 @@ const Teams = () => {
                                         <MessageSquare size={13} style={{ transform: 'scaleX(-1)' }} />
                                         <span>Reply</span>
                                       </button>
+                                      {isOwnMsg && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (window.confirm("Are you sure you want to unsend this message?")) {
+                                              deleteMessage(msg.id);
+                                            }
+                                            setActiveMenuMessageId(null);
+                                          }}
+                                          style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: '#ef4444',
+                                            padding: '6px 12px',
+                                            fontSize: '13px',
+                                            textAlign: 'left',
+                                            cursor: 'pointer',
+                                            borderRadius: '4px',
+                                            width: '100%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                          }}
+                                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)'}
+                                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                                        >
+                                          <Trash2 size={13} />
+                                          <span>Unsend</span>
+                                        </button>
+                                      )}
                                     </div>
                                   )}
                                 </div>
