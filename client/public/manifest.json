@@ -1,0 +1,18 @@
+{
+  "short_name": "Pulse",
+  "name": "Pulse Teams Clone",
+  "description": "Premium real-time team collaboration engine",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512 192x192 any",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0d0e12",
+  "theme_color": "#6366f1",
+  "display": "standalone",
+  "orientation": "portrait-primary"
+}
