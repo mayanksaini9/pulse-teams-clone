@@ -121,19 +121,20 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:stun.nextcloud.com:443' },
       { urls: 'stun:openrelay.metered.ca:80' },
+      { urls: 'stun:global.relay.metered.ca:80' },
       {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp',
+          'turn:global.relay.metered.ca:80',
+          'turn:global.relay.metered.ca:443',
+          'turn:global.relay.metered.ca:443?transport=tcp'
+        ],
         username: 'openrelayproject',
         credential: 'openrelayproject'
       }
@@ -241,11 +242,7 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       const pc = createPeerConnection(socketId, userName, userAvatarColor);
       
       // Add local stream tracks to PC
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => {
-          pc.addTrack(track, streamRef.current);
-        });
-      }
+      addLocalTracksToPeer(pc);
 
       try {
         const offer = await pc.createOffer();
@@ -284,10 +281,8 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
 
       if (signal.type === 'offer') {
         // Add tracks if not added already
-        if (pc.getSenders().length === 0 && streamRef.current) {
-          streamRef.current.getTracks().forEach(track => {
-            pc.addTrack(track, streamRef.current);
-          });
+        if (pc.getSenders().length === 0) {
+          addLocalTracksToPeer(pc);
         }
         
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
@@ -383,6 +378,24 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
     }
   };
 
+  const addLocalTracksToPeer = (pc) => {
+    // Determine the active video track (webcam or screen share)
+    const activeVideoTrack = screenStreamRef.current ? screenStreamRef.current.getVideoTracks()[0] : (streamRef.current && streamRef.current.getVideoTracks()[0]);
+    const activeAudioTrack = streamRef.current && streamRef.current.getAudioTracks()[0];
+    const videoStream = screenStreamRef.current || streamRef.current;
+    
+    // Clear existing senders to prevent duplicate tracks
+    const senders = pc.getSenders();
+    senders.forEach(sender => pc.removeTrack(sender));
+    
+    if (activeAudioTrack && streamRef.current) {
+      pc.addTrack(activeAudioTrack, streamRef.current);
+    }
+    if (activeVideoTrack && videoStream) {
+      pc.addTrack(activeVideoTrack, videoStream);
+    }
+  };
+
   const createPeerConnection = (socketId, userName = 'Guest', avatarColor = '#8b5cf6') => {
     const pc = new RTCPeerConnection(rtcConfig);
     pcs.current[socketId] = pc;
@@ -393,6 +406,23 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           targetSocketId: socketId,
           signal: { candidate: event.candidate }
         });
+      }
+    };
+
+    pc.onnegotiationneeded = async () => {
+      if (pc.signalingState !== 'stable') return;
+      try {
+        console.log(`Negotiation needed with ${userName} (${socketId})...`);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('send_call_signal', {
+          targetSocketId: socketId,
+          senderName: currentUser.name,
+          senderAvatarColor: currentUser.avatarColor,
+          signal: { type: 'offer', sdp: pc.localDescription }
+        });
+      } catch (err) {
+        console.error('Error during renegotiation offer creation:', err);
       }
     };
 
@@ -478,13 +508,9 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           localVideoRef.current.srcObject = screenStream;
         }
 
-        // Replace video track for all active peer connections
+        // Re-add tracks for all active peer connections to trigger renegotiation
         Object.values(pcs.current).forEach(pc => {
-          const senders = pc.getSenders();
-          const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-          if (videoSender) {
-            videoSender.replaceTrack(screenTrack);
-          }
+          addLocalTracksToPeer(pc);
         });
 
         // Notify other participants via server
@@ -515,18 +541,10 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       screenStreamRef.current = null;
     }
 
-    const cameraTrack = originalVideoTrackRef.current || (streamRef.current && streamRef.current.getVideoTracks()[0]);
-
-    if (cameraTrack) {
-      // Restore camera track for all active peer connections
-      Object.values(pcs.current).forEach(pc => {
-        const senders = pc.getSenders();
-        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-        if (videoSender) {
-          videoSender.replaceTrack(cameraTrack);
-        }
-      });
-    }
+    // Re-add camera tracks for all active peer connections to trigger renegotiation
+    Object.values(pcs.current).forEach(pc => {
+      addLocalTracksToPeer(pc);
+    });
 
     // Restore local video element source
     if (localVideoRef.current && streamRef.current) {
