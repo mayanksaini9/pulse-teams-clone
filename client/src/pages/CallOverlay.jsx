@@ -697,44 +697,13 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
       )}
 
       {/* Main Grid View */}
-      {isMinimized ? (
-        <div className="call-grid single-view">
-          {minimizedRemoteUser ? (
-            <VideoFeedCard user={minimizedRemoteUser} isFeatured={true} />
-          ) : (
-            <div 
-              className="video-card local-feed"
-              style={isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
-            >
-              {isVideoOff ? (
-                <div className="call-avatar-placeholder" style={{ backgroundColor: currentUser.avatarColor || '#8b5cf6' }}>
-                  {(currentUser.name || 'U').charAt(0).toUpperCase()}
-                </div>
-              ) : (
-                <video 
-                  ref={el => {
-                    localVideoRef.current = el;
-                    if (el) {
-                      const expectedStream = screenStreamRef.current || localStream;
-                      if (el.srcObject !== expectedStream) {
-                        el.srcObject = expectedStream;
-                      }
-                    }
-                  }} 
-                  autoPlay 
-                  playsInline 
-                  muted 
-                  className="video-element" 
-                />
-              )}
-              <span className="video-label">{currentUser.name} (You)</span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className={`call-grid ${remoteUsers.length === 0 ? 'single-view' : 'multi-view'}`}>
-          {/* Local Participant Feed */}
+      {(() => {
+        const feeds = [];
+        
+        // Local Feed
+        feeds.push(
           <div 
+            key="local-feed"
             className="video-card local-feed"
             onClick={() => {
               if (isVideoOff) return;
@@ -747,9 +716,19 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
             }}
             style={{
               cursor: isVideoOff ? 'default' : 'zoom-in',
+              position: 'relative',
               ...(isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {})
             }}
           >
+            <div className="click-interceptor" style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              zIndex: 10,
+              cursor: isVideoOff ? 'default' : 'zoom-in'
+            }} />
             {isVideoOff ? (
               <div className="call-avatar-placeholder" style={{ backgroundColor: currentUser.avatarColor || '#8b5cf6' }}>
                 {(currentUser.name || 'U').charAt(0).toUpperCase()}
@@ -769,15 +748,18 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
                 playsInline 
                 muted 
                 className="video-element" 
+                style={{ pointerEvents: 'none' }}
               />
             )}
-            <span className="video-label">{currentUser.name} (You) {isScreenSharing && ' - Screen sharing'}</span>
+            <span className="video-label" style={{ zIndex: 12 }}>{currentUser.name} (You) {isScreenSharing && ' - Screen sharing'}</span>
           </div>
+        );
 
-          {/* Remote Participant Feeds */}
-          {remoteUsers.map((user, idx) => (
+        // Remote Feeds
+        remoteUsers.forEach((user, idx) => {
+          feeds.push(
             <VideoFeedCard 
-              key={idx} 
+              key={`remote-${user.socketId || idx}`} 
               user={user} 
               isFeatured={screenShareOwner && screenShareOwner.socketId === user.socketId} 
               onSelect={() => {
@@ -791,9 +773,81 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
                 });
               }}
             />
-          ))}
-        </div>
-      )}
+          );
+        });
+
+        // 3. If there are exactly 3 participants (You + 2 Remotes), divide into 4 parts by inserting a black placeholder
+        if (feeds.length === 3) {
+          feeds.push(
+            <div 
+              key="black-placeholder"
+              className="video-card black-placeholder-card"
+              style={{
+                background: '#050508',
+                border: '1px dashed rgba(255, 255, 255, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                minHeight: '180px'
+              }}
+            >
+              <span style={{ color: 'rgba(255, 255, 255, 0.2)', fontSize: '12px', fontWeight: 600 }}>Waiting for participant...</span>
+            </div>
+          );
+        }
+
+        // Determine Layout Class
+        let layoutClass = 'grid-layout-multi';
+        if (feeds.length === 1) {
+          layoutClass = 'grid-layout-1';
+        } else if (feeds.length === 2) {
+          layoutClass = 'grid-layout-2';
+        } else if (feeds.length === 4) {
+          layoutClass = 'grid-layout-4';
+        }
+
+        return isMinimized ? (
+          <div className="call-grid single-view">
+            {minimizedRemoteUser ? (
+              <VideoFeedCard user={minimizedRemoteUser} isFeatured={true} />
+            ) : (
+              <div 
+                className="video-card local-feed"
+                style={isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
+              >
+                {isVideoOff ? (
+                  <div className="call-avatar-placeholder" style={{ backgroundColor: currentUser.avatarColor || '#8b5cf6' }}>
+                    {(currentUser.name || 'U').charAt(0).toUpperCase()}
+                  </div>
+                ) : (
+                  <video 
+                    ref={el => {
+                      localVideoRef.current = el;
+                      if (el) {
+                        const expectedStream = screenStreamRef.current || localStream;
+                        if (el.srcObject !== expectedStream) {
+                          el.srcObject = expectedStream;
+                        }
+                      }
+                    }} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    className="video-element" 
+                  />
+                )}
+                <span className="video-label">{currentUser.name} (You)</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className={`call-grid ${layoutClass}`}>
+            {feeds}
+          </div>
+        );
+      })()}
 
       {/* Floating Call Reactions Animation Overlay */}
       <div className="floating-reactions-container" style={{
@@ -970,9 +1024,19 @@ const VideoFeedCard = ({ user, isFeatured, onSelect }) => {
       onClick={onSelect}
       style={{
         cursor: hasVideoTrack ? 'zoom-in' : 'default',
+        position: 'relative',
         ...(isFeatured ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {})
       }}
     >
+      <div className="click-interceptor" style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        zIndex: 10,
+        cursor: hasVideoTrack ? 'zoom-in' : 'default'
+      }} />
       {!hasVideoTrack && (
         <div className="call-avatar-placeholder" style={{ backgroundColor: user.avatarColor || '#8b5cf6', zIndex: 2 }}>
           {(user.userName || 'U').charAt(0).toUpperCase()}
@@ -1000,7 +1064,7 @@ const VideoFeedCard = ({ user, isFeatured, onSelect }) => {
           objectFit: 'cover',
           zIndex: 1,
           opacity: hasVideoTrack ? 1 : 0,
-          pointerEvents: hasVideoTrack ? 'auto' : 'none'
+          pointerEvents: 'none'
         }} 
       />
       <span className="video-label" style={{ zIndex: 3 }}>{user.userName} {isFeatured && ' - Screen sharing'}</span>
