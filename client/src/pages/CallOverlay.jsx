@@ -14,6 +14,7 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
   const [duration, setDuration] = useState(0);
   const [reactions, setReactions] = useState([]);
   const [showReactionsPopup, setShowReactionsPopup] = useState(false);
+  const [fullscreenFeed, setFullscreenFeed] = useState(null); // { socketId, userName, stream, avatarColor }
 
   const triggerFloatingReaction = (emoji) => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -735,7 +736,19 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           {/* Local Participant Feed */}
           <div 
             className="video-card local-feed"
-            style={isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
+            onClick={() => {
+              if (isVideoOff) return;
+              setFullscreenFeed({
+                socketId: 'local',
+                userName: currentUser.name,
+                stream: screenStreamRef.current || localStream,
+                avatarColor: currentUser.avatarColor
+              });
+            }}
+            style={{
+              cursor: isVideoOff ? 'default' : 'zoom-in',
+              ...(isScreenSharing ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {})
+            }}
           >
             {isVideoOff ? (
               <div className="call-avatar-placeholder" style={{ backgroundColor: currentUser.avatarColor || '#8b5cf6' }}>
@@ -767,6 +780,16 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
               key={idx} 
               user={user} 
               isFeatured={screenShareOwner && screenShareOwner.socketId === user.socketId} 
+              onSelect={() => {
+                const hasVideoTrack = user.stream && user.stream.getVideoTracks().length > 0 && user.stream.getVideoTracks()[0].enabled;
+                if (!hasVideoTrack) return;
+                setFullscreenFeed({
+                  socketId: user.socketId,
+                  userName: user.userName,
+                  stream: user.stream,
+                  avatarColor: user.avatarColor
+                });
+              }}
             />
           ))}
         </div>
@@ -902,12 +925,34 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           <PhoneOff size={20} />
         </button>
       </div>
+
+      {fullscreenFeed && (
+        <div className="fullscreen-overlay" onClick={() => setFullscreenFeed(null)}>
+          <video 
+            ref={el => {
+              if (el && fullscreenFeed.stream) {
+                el.srcObject = fullscreenFeed.stream;
+                el.play().catch(err => console.warn("Fullscreen play interrupted:", err));
+              }
+            }}
+            autoPlay 
+            playsInline 
+            className="fullscreen-video-element"
+          />
+          <div className="fullscreen-label" onClick={e => e.stopPropagation()}>
+            <span>{fullscreenFeed.userName}</span>
+            <button className="exit-fullscreen-btn" onClick={() => setFullscreenFeed(null)}>
+              Exit Fullscreen
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // Sub-component to bind srcObject properly inside remote stream feeds
-const VideoFeedCard = ({ user, isFeatured }) => {
+const VideoFeedCard = ({ user, isFeatured, onSelect }) => {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -922,7 +967,11 @@ const VideoFeedCard = ({ user, isFeatured }) => {
   return (
     <div 
       className="video-card remote-feed"
-      style={isFeatured ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {}}
+      onClick={onSelect}
+      style={{
+        cursor: hasVideoTrack ? 'zoom-in' : 'default',
+        ...(isFeatured ? { border: '2px solid #10b981', boxShadow: '0 0 20px rgba(16, 185, 129, 0.3)' } : {})
+      }}
     >
       {!hasVideoTrack && (
         <div className="call-avatar-placeholder" style={{ backgroundColor: user.avatarColor || '#8b5cf6', zIndex: 2 }}>
