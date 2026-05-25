@@ -2,13 +2,27 @@ import React from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Auth from './pages/Auth';
 import Teams from './pages/Teams';
+import { InstallPage } from './pages/InstallPage';
 import { Activity } from 'lucide-react';
 import { LivePulseBackground } from './components/LivePulseBackground';
 
 const AppContent = () => {
   const { user, loading } = useAuth();
+  const [deferredPrompt, setDeferredPrompt] = React.useState(null);
+  const [currentPath, setCurrentPath] = React.useState(window.location.pathname);
 
   React.useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
     const searchParams = new URLSearchParams(window.location.search);
     const inviteId = searchParams.get('invite');
     if (inviteId) {
@@ -16,7 +30,21 @@ const AppContent = () => {
       // Clean query parameter from URL bar
       window.history.replaceState({}, document.title, window.location.pathname);
     }
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
   }, []);
+
+  if (currentPath === '/install') {
+    return (
+      <>
+        <LivePulseBackground />
+        <InstallPage deferredPrompt={deferredPrompt} setDeferredPrompt={setDeferredPrompt} />
+      </>
+    );
+  }
 
   if (loading) {
     return (
