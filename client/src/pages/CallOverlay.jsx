@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Users, Monitor, Minimize2, Maximize2 } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Users, Monitor, Minimize2, Maximize2, Smile } from 'lucide-react';
 import './CallOverlay.css';
 
 export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUser, initialCallType, onClose }) => {
@@ -11,6 +11,28 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
   const [screenShareOwner, setScreenShareOwner] = useState(null); // { socketId, name }
   const [errorMsg, setErrorMsg] = useState('');
   const [duration, setDuration] = useState(0);
+  const [reactions, setReactions] = useState([]);
+  const [showReactionsPopup, setShowReactionsPopup] = useState(false);
+
+  const triggerFloatingReaction = (emoji) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    const left = Math.random() * 80 + 10;
+    const duration = Math.random() * 1.5 + 2;
+    const rotation = Math.random() * 60 - 30;
+    
+    setReactions(prev => [...prev, { id, emoji, left, duration, rotation }]);
+    
+    setTimeout(() => {
+      setReactions(prev => prev.filter(r => r.id !== id));
+    }, 4000);
+  };
+
+  const sendReaction = (emoji) => {
+    if (socket) {
+      socket.emit('send_call_reaction', { teamId, channelId, emoji });
+    }
+    triggerFloatingReaction(emoji);
+  };
 
   // Floating Minimized Panel states
   const [isMinimized, setIsMinimized] = useState(false);
@@ -187,6 +209,7 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
         socket.off('user_left_call');
         socket.off('screen_share_owner');
         socket.off('screen_share_cleared');
+        socket.off('receive_call_reaction');
       }
     };
   }, []);
@@ -336,6 +359,10 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
 
     socket.on('screen_share_cleared', () => {
       setScreenShareOwner(null);
+    });
+
+    socket.on('receive_call_reaction', ({ emoji }) => {
+      triggerFloatingReaction(emoji);
     });
   };
 
@@ -653,6 +680,36 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
         </div>
       )}
 
+      {/* Floating Call Reactions Animation Overlay */}
+      <div className="floating-reactions-container" style={{
+        position: 'absolute',
+        bottom: '100px',
+        left: 0,
+        right: 0,
+        height: '60%',
+        pointerEvents: 'none',
+        zIndex: 1000,
+        overflow: 'hidden'
+      }}>
+        {reactions.map(r => (
+          <div 
+            key={r.id} 
+            className="floating-emoji" 
+            style={{
+              position: 'absolute',
+              bottom: '-50px',
+              left: `${r.left}%`,
+              fontSize: '32px',
+              animation: `floatUp ${r.duration}s ease-out forwards`,
+              transform: `rotate(${r.rotation}deg)`,
+              opacity: 0.9
+            }}
+          >
+            {r.emoji}
+          </div>
+        ))}
+      </div>
+
       {/* Control Action Toolbar */}
       <div className="call-controls-bar glass-panel">
         <button 
@@ -686,6 +743,53 @@ export const CallOverlay = ({ socket, teamId, channelId, channelName, currentUse
           }
         >
           <Monitor size={20} />
+        </button>
+
+        {/* Zoom/Teams style reactions button */}
+        <button 
+          onClick={() => setShowReactionsPopup(!showReactionsPopup)} 
+          className={`control-btn ${showReactionsPopup ? 'active' : ''}`}
+          title="Send Reaction"
+          style={{ position: 'relative' }}
+        >
+          <Smile size={20} />
+          {showReactionsPopup && (
+            <div className="reactions-popup glass-panel" style={{
+              position: 'absolute',
+              bottom: '56px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(15, 17, 26, 0.95)',
+              border: '1px solid var(--border-light)',
+              borderRadius: '24px',
+              padding: '6px 12px',
+              display: 'flex',
+              gap: '8px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              zIndex: 100010
+            }}>
+              {['👍', '❤️', '👏', '😂', '🎉'].map(emoji => (
+                <span 
+                  key={emoji}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sendReaction(emoji);
+                    setShowReactionsPopup(false);
+                  }}
+                  style={{
+                    fontSize: '22px',
+                    cursor: 'pointer',
+                    transition: 'transform 0.2s',
+                    padding: '2px'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.3)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                >
+                  {emoji}
+                </span>
+              ))}
+            </div>
+          )}
         </button>
 
         <button 

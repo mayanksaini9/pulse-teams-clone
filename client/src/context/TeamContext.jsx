@@ -304,7 +304,7 @@ export const TeamProvider = ({ children }) => {
   };
 
   // Send message helper (emits to server)
-  const sendMessage = (text, isMedia = false, isAttachment = false, replyTo = null) => {
+  const sendMessage = (text, isMedia = false, isAttachment = false, replyTo = null, type = 'text', attachment = null) => {
     if (!socket || !currentTeam || !currentChannel || !user) return;
 
     socket.emit('send_message', {
@@ -317,7 +317,9 @@ export const TeamProvider = ({ children }) => {
       senderAvatarUrl: user.avatarUrl || '',
       isMedia: !!isMedia,
       isAttachment: !!isAttachment,
-      replyTo: replyTo
+      replyTo: replyTo,
+      type: type,
+      attachment: attachment
     });
   };
 

@@ -360,3 +360,26 @@
   height: 38px !important;
 }
 
+/* Floating Reactions Zoom/Teams-style */
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) scale(0.5);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(-20px) scale(1.2);
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-400px) scale(0.8) rotate(15deg);
+    opacity: 0;
+  }
+}
+
+.reactions-popup span {
+  display: inline-block;
+  user-select: none;
+}

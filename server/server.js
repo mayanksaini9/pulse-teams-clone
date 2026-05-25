@@ -733,7 +733,7 @@ io.on('connection', (socket) => {
   // Handle incoming message and broadcast to others in room
   socket.on('send_message', async (messageData) => {
     try {
-      const { teamId, channelId, text, senderId, senderName, senderAvatarColor, senderAvatarUrl, isMedia, isAttachment, replyTo } = messageData;
+      const { teamId, channelId, text, senderId, senderName, senderAvatarColor, senderAvatarUrl, isMedia, isAttachment, replyTo, type, attachment } = messageData;
       
       if (!teamId || !channelId || !text || !senderId) {
         return;
@@ -749,11 +749,120 @@ io.on('connection', (socket) => {
         senderAvatarUrl: senderAvatarUrl || '',
         isMedia: !!isMedia,
         isAttachment: !!isAttachment,
-        replyTo: replyTo || null
+        replyTo: replyTo || null,
+        type: type || 'text',
+        attachment: attachment || null
       });
       
       const roomName = `${teamId}_${channelId}`;
       io.to(roomName).emit('receive_message', newMsg);
+
+      // --- AI ASSISTANT / SUMMARIZER LOOP ---
+      const trimmedText = text.trim();
+      if (trimmedText.startsWith('/summarize') || trimmedText.startsWith('/ai')) {
+        // Emit typing indicator for AI Assistant
+        io.to(roomName).emit('ai_typing_state', { channelId, isTyping: true });
+        
+        setTimeout(async () => {
+          let replyText = '';
+          
+          if (trimmedText.startsWith('/summarize')) {
+            const rawMsgs = await database.getMessages(teamId, channelId);
+            const userMsgs = rawMsgs.filter(m => !m.isSystem && m.senderId !== 'ai-assistant').slice(-20);
+            
+            if (userMsgs.length === 0) {
+              replyText = `### 🤖 Pulse AI Summarizer\n\nThere are no recent messages in this channel to summarize yet! Start chatting, then run \`/summarize\` again.`;
+            } else {
+              const contributors = [...new Set(userMsgs.map(m => m.senderName || 'Anonymous'))];
+              const msgCount = userMsgs.length;
+              
+              // Simple NLP/Keyword extraction for topics
+              const topics = [];
+              const textDump = userMsgs.map(m => m.text.toLowerCase()).join(' ');
+              if (textDump.includes('call') || textDump.includes('webrtc') || textDump.includes('video') || textDump.includes('audio')) {
+                topics.push('WebRTC Video/Audio meetings and connectivity');
+              }
+              if (textDump.includes('bug') || textDump.includes('error') || textDump.includes('fail') || textDump.includes('glitch')) {
+                topics.push('Troubleshooting system bugs and service issues');
+              }
+              if (textDump.includes('code') || textDump.includes('snippet') || textDump.includes('css') || textDump.includes('js')) {
+                topics.push('Software engineering and code development sharing');
+              }
+              if (textDump.includes('image') || textDump.includes('file') || textDump.includes('pdf') || textDump.includes('attachment')) {
+                topics.push('Media file transfers and camera sticker interactions');
+              }
+              if (topics.length === 0) {
+                topics.push('General team discussion and greetings');
+              }
+              
+              // Extract recent summaries of lines
+              const recentHighlights = userMsgs.slice(-3).map(m => `* **${m.senderName}**: "${m.text.length > 60 ? m.text.substring(0, 60) + '...' : m.text}"`).join('\n');
+              
+              replyText = `### 🤖 Pulse AI Channel Summary\n\n` +
+                          `I analyzed the last **${msgCount} messages** in this channel:\n\n` +
+                          `* **Active Participants:** ${contributors.join(', ')}\n` +
+                          `* **Key Topics Discussed:**\n` +
+                          topics.map(t => `  - ${t}`).join('\n') + `\n\n` +
+                          `* **Recent Conversation Highlights:**\n` +
+                          recentHighlights + `\n\n` +
+                          `*Generated dynamically by Pulse AI.*`;
+            }
+          } else {
+            // It is an /ai query
+            const query = trimmedText.replace(/^\/ai\s*/i, '').trim();
+            if (!query) {
+              replyText = `### 🤖 Pulse AI Assistant\n\nHow can I help you today? Type \`/ai <your question>\` to ask me anything!\n\n**Example:** \`/ai explain WebRTC STUN/TURN\``;
+            } else {
+              const lowerQuery = query.toLowerCase();
+              if (lowerQuery.includes('webrtc') || lowerQuery.includes('stun') || lowerQuery.includes('turn') || lowerQuery.includes('call')) {
+                replyText = `### 🤖 Pulse AI: WebRTC & NAT Traversal\n\n` +
+                            `WebRTC (Web Real-Time Communication) allows audio and video streams to travel directly between browsers (peer-to-peer). Here is how Pulse connects calls:\n\n` +
+                            `1. **STUN (Session Traversal Utilities for NAT)**: Helps your device discover its public IP address and router ports to establish a direct connection.\n` +
+                            `2. **TURN (Traversal Using Relays around NAT)**: Used when firewalls or mobile CGNAT block direct connections. It relays all media traffic through a secure server.\n` +
+                            `3. **Self-Healing ICE Restarts**: Pulse listens to the connection state. If a drop is detected, it automatically executes an ICE restart in the background to heal the call instantly.`;
+              } else if (lowerQuery.includes('react') || lowerQuery.includes('useeffect') || lowerQuery.includes('state')) {
+                replyText = `### 🤖 Pulse AI: React State & Hooks\n\n` +
+                            `React components use state and lifecycle hooks to manage interactive UI dynamically:\n\n` +
+                            `* **useState**: Declares reactive variables that trigger a re-render when modified.\n` +
+                            `* **useEffect**: Handles side effects (like connecting to Socket.io or initializing WebRTC).\n` +
+                            `* **Ref Callbacks**: Used instead of raw \`useRef\` when binding streams to conditional video elements. It guarantees that the stream attaches every time the element mounts or flips minimized/maximized.`;
+              } else if (lowerQuery.includes('socket.io') || lowerQuery.includes('websocket') || lowerQuery.includes('realtime')) {
+                replyText = `### 🤖 Pulse AI: Real-Time WebSockets\n\n` +
+                            `Pulse uses **Socket.io** to establish a persistent, bi-directional TCP connection between the client and the server:\n\n` +
+                            `* **Chat**: Messages are broadcasted to channel rooms (\`io.to(channelId).emit\`).\n` +
+                            `* **User Status**: Connect/disconnect signals are broadcasted instantly, updating the green/grey active badges in the sidebar.\n` +
+                            `* **Typing Indicators**: Informs users when someone is typing dynamically.`;
+              } else {
+                replyText = `### 🤖 Pulse AI Assistant\n\n` +
+                            `Thanks for asking! I am the Pulse AI Assistant. Here is what I can do to help you in this codebase:\n\n` +
+                            `* **Summarize Chat**: Type \`/summarize\` to get an instant recap of recent channel discussions.\n` +
+                            `* **Explain Tech**: Ask me questions about WebRTC, WebSockets, MongoDB, or React.\n` +
+                            `* **Write Code**: Ask me to write code snippets, which you can paste directly into our code editor!\n\n` +
+                            `*Your question was: "${query}"*`;
+              }
+            }
+          }
+          
+          const aiMsg = await database.createMessage({
+            teamId,
+            channelId,
+            text: replyText,
+            senderId: 'ai-assistant',
+            senderName: 'Pulse AI',
+            senderAvatarColor: '#10b981', // Glowing Green
+            senderAvatarUrl: '',
+            isMedia: false,
+            isAttachment: false,
+            isSystem: true,
+            replyTo: null,
+            type: 'text',
+            attachment: null
+          });
+          
+          io.to(roomName).emit('receive_message', aiMsg);
+          io.to(roomName).emit('ai_typing_state', { channelId, isTyping: false });
+        }, 1500);
+      }
     } catch (err) {
       console.error('Socket error in send_message:', err);
     }
@@ -854,6 +963,11 @@ io.on('connection', (socket) => {
       senderAvatarColor,
       signal
     });
+  });
+
+  socket.on('send_call_reaction', ({ teamId, channelId, emoji }) => {
+    const callRoomName = `call_${teamId}_${channelId}`;
+    socket.to(callRoomName).emit('receive_call_reaction', { emoji });
   });
 
   socket.on('share_screen_started', ({ teamId, channelId, userName }) => {

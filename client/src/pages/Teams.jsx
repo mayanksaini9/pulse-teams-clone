@@ -6,10 +6,142 @@ import {
   Search, Plus, ChevronDown, Check, User, Sparkles, Shield, Hash, 
   ArrowUpRight, TrendingUp, Calendar, Copy, Eye, EyeOff, X, Send,
   Paperclip, Smile, Users as GroupIcon, ShieldAlert, Key, ClipboardCheck,
-  Download, File as FileIcon, Menu, Mic, Camera
+  Download, File as FileIcon, Menu, Mic, Camera, Code
 } from 'lucide-react';
 
 import { CallOverlay } from './CallOverlay';
+
+// Simple regex-based code syntax highlighting function
+const highlightCode = (code, language) => {
+  if (!code) return '';
+  let escaped = code
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  if (language === 'javascript' || language === 'typescript') {
+    escaped = escaped
+      .replace(/(\/\/.*)/g, '<span class="code-comment">$1</span>')
+      .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="code-comment">$1</span>')
+      .replace(/(["'`])(.*?)\1/g, '<span class="code-string">$1$2$1</span>')
+      .replace(/\b(const|let|var|function|return|if|else|for|while|import|export|from|class|extends|new|async|await|try|catch|finally|this)\b/g, '<span class="code-keyword">$1</span>')
+      .replace(/\b(true|false|null|undefined|NaN|[0-9]+)\b/g, '<span class="code-number">$1</span>');
+  } else if (language === 'python') {
+    escaped = escaped
+      .replace(/(#.*)/g, '<span class="code-comment">$1</span>')
+      .replace(/(["'])(.*?)\1/g, '<span class="code-string">$1$2$1</span>')
+      .replace(/\b(def|return|if|elif|else|for|while|import|from|class|try|except|finally|in|is|not|and|or|lambda|pass)\b/g, '<span class="code-keyword">$1</span>')
+      .replace(/\b(True|False|None|[0-9]+)\b/g, '<span class="code-number">$1</span>');
+  } else if (language === 'html' || language === 'css') {
+    escaped = escaped
+      .replace(/(&lt;\/?[a-zA-Z0-9:-]+&gt;)/g, '<span class="code-keyword">$1</span>')
+      .replace(/([a-zA-Z:-]+)=/g, '<span class="code-attribute">$1</span>=')
+      .replace(/([a-zA-Z-]+)\s*:/g, '<span class="code-keyword">$1</span>:');
+  } else if (language === 'sql') {
+    escaped = escaped
+      .replace(/\b(SELECT|FROM|WHERE|INSERT|INTO|UPDATE|DELETE|JOIN|LEFT|RIGHT|ON|GROUP|BY|ORDER|HAVING|CREATE|TABLE|ALTER|DROP|VALUES|AND|OR|NOT|NULL)\b/gi, '<span class="code-keyword">$1</span>')
+      .replace(/(--.*)/g, '<span class="code-comment">$1</span>')
+      .replace(/(["'])(.*?)\1/g, '<span class="code-string">$1$2$1</span>');
+  }
+  return escaped;
+};
+
+const CodeSnippetBlock = ({ code, language }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const highlightedHtml = highlightCode(code, language);
+  const lineNumbers = code.split('\n').map((_, i) => i + 1);
+
+  return (
+    <div className="code-snippet-box" style={{
+      background: '#090a0f',
+      border: '1px solid rgba(255, 255, 255, 0.08)',
+      borderRadius: '12px',
+      overflow: 'hidden',
+      marginTop: '6px',
+      width: '100%',
+      maxWidth: '680px',
+      fontFamily: 'Consolas, Monaco, monospace'
+    }}>
+      <style>{`
+        .code-snippet-box .code-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.03);
+          padding: 8px 16px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+        .code-snippet-box .code-body-wrapper {
+          display: flex;
+          padding: 12px;
+          font-size: 13px;
+          line-height: 1.5;
+          overflow-x: auto;
+        }
+        .code-snippet-box .line-numbers {
+          color: rgba(255, 255, 255, 0.25);
+          text-align: right;
+          padding-right: 12px;
+          user-select: none;
+          border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .code-snippet-box .code-content {
+          padding-left: 12px;
+          color: #e2e8f0;
+          white-space: pre;
+          flex-grow: 1;
+        }
+        .code-snippet-box .code-keyword { color: #f43f5e; font-weight: 600; }
+        .code-snippet-box .code-string { color: #10b981; }
+        .code-snippet-box .code-comment { color: #64748b; font-style: italic; }
+        .code-snippet-box .code-number { color: #3b82f6; }
+        .code-snippet-box .code-attribute { color: #eab308; }
+        @keyframes pulse-dot {
+          0%, 80%, 100% { transform: scale(0); }
+          40% { transform: scale(1); }
+        }
+      `}</style>
+      <div className="code-header">
+        <span style={{ textTransform: 'uppercase', fontWeight: 600, fontSize: '11px', color: 'var(--accent-primary)', letterSpacing: '0.5px' }}>
+          {language}
+        </span>
+        <button 
+          type="button"
+          onClick={handleCopy}
+          style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '6px',
+            color: 'white',
+            padding: '4px 8px',
+            fontSize: '11px',
+            cursor: 'pointer',
+            transition: 'background 0.2s'
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
+        >
+          {copied ? 'Copied!' : 'Copy Code'}
+        </button>
+      </div>
+      <div className="code-body-wrapper">
+        <div className="line-numbers">
+          {lineNumbers.map(n => <div key={n}>{n}</div>)}
+        </div>
+        <pre className="code-content" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+      </div>
+    </div>
+  );
+};
 
 // Touch Swipe gesture component to slide-to-reply on mobile
 const MessageSwipeRow = ({ msg, onReply, children }) => {
@@ -177,6 +309,16 @@ const Teams = () => {
   const [passcode, setPasscode] = useState('');
   const [joinTeamId, setJoinTeamId] = useState('');
   const [joinPasscode, setJoinPasscode] = useState('');
+
+  // Code Snippet & AI states
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [codeText, setCodeText] = useState('');
+  const [codeLanguage, setCodeLanguage] = useState('javascript');
+  const [aiTyping, setAiTyping] = useState(false);
+
+  useEffect(() => {
+    setAiTyping(false);
+  }, [currentChannel]);
 
   // Form states - Channel
   const [newChannelName, setNewChannelName] = useState('');
@@ -605,6 +747,28 @@ const Teams = () => {
       text: replyToMessage.text
     } : null);
     setInputText('');
+    setReplyToMessage(null);
+  };
+
+  const handleSendCodeSnippet = (e) => {
+    e.preventDefault();
+    if (!codeText.trim() || !currentTeam || !currentChannel) return;
+
+    sendMessage(
+      `Shared a ${codeLanguage} code snippet.`,
+      false,
+      false,
+      replyToMessage ? {
+        id: replyToMessage.id,
+        senderName: replyToMessage.senderName,
+        text: replyToMessage.text
+      } : null,
+      'code',
+      JSON.stringify({ code: codeText, language: codeLanguage })
+    );
+
+    setCodeText('');
+    setShowCodeModal(false);
     setReplyToMessage(null);
   };
 
@@ -1084,14 +1248,22 @@ const Teams = () => {
       }
     };
 
+    const handleAiTypingState = ({ channelId, isTyping }) => {
+      if (currentChannel && currentChannel.id === channelId) {
+        setAiTyping(isTyping);
+      }
+    };
+
     socket.on('team_theme_updated', handleThemeUpdate);
     socket.on('member_kicked', handleMemberKick);
     socket.on('team_updated', handleTeamUpdate);
+    socket.on('ai_typing_state', handleAiTypingState);
 
     return () => {
       socket.off('team_theme_updated', handleThemeUpdate);
       socket.off('member_kicked', handleMemberKick);
       socket.off('team_updated', handleTeamUpdate);
+      socket.off('ai_typing_state', handleAiTypingState);
     };
   }, [socket, currentTeam, user]);
 
@@ -1333,6 +1505,67 @@ const Teams = () => {
         console.error("Error parsing attachment message:", err);
         return <p style={{ color: 'var(--error)' }}>⚠️ Broken Attachment Payload</p>;
       }
+    }
+
+    if (msg.type === 'code') {
+      let code = '';
+      let language = 'javascript';
+      if (msg.attachment) {
+        try {
+          const payload = typeof msg.attachment === 'string' ? JSON.parse(msg.attachment) : msg.attachment;
+          code = payload.code || '';
+          language = payload.language || 'javascript';
+        } catch (e) {
+          code = msg.text;
+        }
+      } else {
+        code = msg.text;
+      }
+      return <CodeSnippetBlock code={code} language={language} />;
+    }
+
+    if (msg.senderId === 'ai-assistant') {
+      const lines = msg.text.split('\n');
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {lines.map((line, idx) => {
+            if (line.startsWith('### ')) {
+              return <h3 key={idx} style={{ fontSize: '15px', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>{line.replace('### ', '')}</h3>;
+            }
+            if (line.startsWith('* **')) {
+              const matches = line.match(/\* \*\*(.*?)\*\*:(.*)/);
+              if (matches) {
+                return (
+                  <div key={idx} style={{ fontSize: '13px', margin: '2px 0 2px 12px' }}>
+                    <strong style={{ color: 'var(--text-primary)' }}>{matches[1]}:</strong>
+                    <span style={{ color: 'var(--text-secondary)' }}>{matches[2]}</span>
+                  </div>
+                );
+              }
+            }
+            if (line.startsWith('* ')) {
+              return (
+                <div key={idx} style={{ display: 'flex', gap: '6px', fontSize: '13px', margin: '2px 0 2px 8px', color: 'var(--text-secondary)' }}>
+                  <span>•</span>
+                  <span>{line.replace('* ', '')}</span>
+                </div>
+              );
+            }
+            if (line.startsWith('  - ')) {
+              return (
+                <div key={idx} style={{ display: 'flex', gap: '6px', fontSize: '12.5px', margin: '1px 0 1px 24px', color: 'var(--text-muted)' }}>
+                  <span>◦</span>
+                  <span>{line.replace('  - ', '')}</span>
+                </div>
+              );
+            }
+            if (line.trim().startsWith('*Generated')) {
+              return <em key={idx} style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', display: 'block' }}>{line.replace(/\*/g, '')}</em>;
+            }
+            return <p key={idx} style={{ margin: '2px 0', fontSize: '13px', color: 'var(--text-secondary)' }}>{line}</p>;
+          })}
+        </div>
+      );
     }
 
     return <p>{msg.text}</p>;
@@ -2157,6 +2390,26 @@ const Teams = () => {
                       </MessageSwipeRow>
                     );
                   })}
+                  {aiTyping && (
+                    <div className="message-bubble-wrapper system-msg" style={{ margin: '8px 0', padding: '4px 8px', display: 'flex', gap: '8px' }}>
+                      <div className="message-avatar" style={{ backgroundColor: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', width: '32px', height: '32px' }}>
+                        🤖
+                      </div>
+                      <div className="message-content-area" style={{ flexGrow: 1 }}>
+                        <div className="message-meta" style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: 600 }}>Pulse AI</span>
+                        </div>
+                        <div className="message-bubble" style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '12px' }}>
+                          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>AI is thinking</span>
+                          <span className="pulse-dots" style={{ display: 'flex', gap: '4px' }}>
+                            <span style={{ width: '6px', height: '6px', background: '#10b981', borderRadius: '50%', animation: 'pulse-dot 1.4s infinite both' }}></span>
+                            <span style={{ width: '6px', height: '6px', background: '#10b981', borderRadius: '50%', animation: 'pulse-dot 1.4s infinite both 0.2s' }}></span>
+                            <span style={{ width: '6px', height: '6px', background: '#10b981', borderRadius: '50%', animation: 'pulse-dot 1.4s infinite both 0.4s' }}></span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div ref={messagesEndRef} />
                 </div>
 
@@ -2459,6 +2712,14 @@ const Teams = () => {
                     onClick={startCamera}
                   >
                     <Camera size={18} />
+                  </button>
+                  <button 
+                    type="button" 
+                    className="input-action-btn" 
+                    title="Share Code Snippet"
+                    onClick={() => setShowCodeModal(true)}
+                  >
+                    <Code size={18} />
                   </button>
 
                   {isRecording ? (
@@ -3537,6 +3798,98 @@ const Teams = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showCodeModal && (
+        <div className="modal-overlay" style={{ zIndex: 100003 }}>
+          <div className="modal-content-card glass-panel" style={{ maxWidth: '640px', width: '100%', position: 'relative' }}>
+            <div className="modal-header">
+              <h2>Share Code Snippet</h2>
+              <button onClick={() => setShowCodeModal(false)} className="close-modal-btn">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSendCodeSnippet} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Language:</label>
+                <select 
+                  value={codeLanguage} 
+                  onChange={(e) => setCodeLanguage(e.target.value)}
+                  style={{
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '8px',
+                    color: 'white',
+                    padding: '6px 12px',
+                    outline: 'none',
+                    fontSize: '13px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="javascript">JavaScript</option>
+                  <option value="python">Python</option>
+                  <option value="html">HTML</option>
+                  <option value="css">CSS</option>
+                  <option value="sql">SQL</option>
+                </select>
+              </div>
+
+              <textarea
+                value={codeText}
+                onChange={(e) => setCodeText(e.target.value)}
+                placeholder="Paste or write your code snippet here..."
+                style={{
+                  width: '100%',
+                  height: '240px',
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '8px',
+                  color: '#e2e8f0',
+                  padding: '12px',
+                  fontFamily: 'Consolas, Monaco, monospace',
+                  fontSize: '13px',
+                  outline: 'none',
+                  resize: 'vertical'
+                }}
+                required
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowCodeModal(false)}
+                  className="modal-action-btn secondary"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    color: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="modal-action-btn primary"
+                  style={{
+                    background: 'var(--accent-primary)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 20px',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Share to Channel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
