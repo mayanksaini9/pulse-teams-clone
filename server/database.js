@@ -96,7 +96,13 @@ const Message = mongoose.models.Message || mongoose.model('Message', MessageSche
 
 // Helper to determine if we should use MongoDB or JSON files
 const isMongoConnected = () => {
-  return mongoose.connection.readyState === 1;
+  // If explicitly configured with MONGODB_URI (e.g. in production), we MUST use MongoDB
+  // so Mongoose buffers operations properly instead of falling back to ephemeral files.
+  if (process.env.MONGODB_URI) {
+    return true;
+  }
+  // Fall back only if disconnected (readyState 0)
+  return mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2;
 };
 
 const database = {
