@@ -332,6 +332,9 @@ app.post('/api/teams/join', authenticateToken, async (req, res) => {
     }
 
     const team = await database.joinTeam(teamId.toUpperCase().trim(), passcode.trim(), req.user.id);
+    const user = await database.findUserById(req.user.id);
+    const userName = user ? user.name : 'A member';
+    await sendSystemMessage(team.id, null, `${userName} joined the team.`);
     res.status(200).json(team);
   } catch (error) {
     console.error('Error joining team:', error);
@@ -356,6 +359,10 @@ app.post('/api/teams/:teamId/join-invite', authenticateToken, async (req, res) =
 
     team.members.push(userId);
     await database.updateTeam(team);
+
+    const user = await database.findUserById(userId);
+    const userName = user ? user.name : 'A member';
+    await sendSystemMessage(team.id, null, `${userName} joined the team via invite link.`);
 
     res.status(200).json({ team, message: `Successfully joined ${team.name}!` });
   } catch (error) {
@@ -389,6 +396,12 @@ app.post('/api/teams/:teamId/promote', authenticateToken, async (req, res) => {
       await database.updateTeam(team);
       // Notify all clients of update
       io.emit('team_updated', { teamId });
+
+      const targetUser = await database.findUserById(userId);
+      const callerUser = await database.findUserById(callerId);
+      const targetName = targetUser ? targetUser.name : 'User';
+      const callerName = callerUser ? callerUser.name : 'Admin';
+      await sendSystemMessage(teamId, null, `${targetName} was promoted to Admin by ${callerName}.`);
     }
 
     res.status(200).json({ team, message: 'User promoted to admin successfully.' });
@@ -423,6 +436,12 @@ app.post('/api/teams/:teamId/demote', authenticateToken, async (req, res) => {
       await database.updateTeam(team);
       // Notify all clients of update
       io.emit('team_updated', { teamId });
+
+      const targetUser = await database.findUserById(userId);
+      const callerUser = await database.findUserById(callerId);
+      const targetName = targetUser ? targetUser.name : 'User';
+      const callerName = callerUser ? callerUser.name : 'Admin';
+      await sendSystemMessage(teamId, null, `${targetName} was demoted to Member by ${callerName}.`);
     }
 
     res.status(200).json({ team, message: 'User demoted successfully.' });
@@ -459,6 +478,12 @@ app.post('/api/teams/:teamId/kick', authenticateToken, async (req, res) => {
     team.admins = admins.filter(a => a !== userId);
 
     await database.updateTeam(team);
+
+    const targetUser = await database.findUserById(userId);
+    const callerUser = await database.findUserById(callerId);
+    const targetName = targetUser ? targetUser.name : 'User';
+    const callerName = callerUser ? callerUser.name : 'Admin';
+    await sendSystemMessage(teamId, null, `${targetName} was removed from the team by ${callerName}.`);
 
     // Notify the kicked user and others
     io.emit('member_kicked', { teamId, userId });
@@ -539,7 +564,12 @@ app.post('/api/teams/:teamId/update', authenticateToken, async (req, res) => {
 app.post('/api/teams/:teamId/leave', authenticateToken, async (req, res) => {
   try {
     const { teamId } = req.params;
+    const user = await database.findUserById(req.user.id);
+    const userName = user ? user.name : 'A member';
+
     const team = await database.leaveTeam(teamId, req.user.id);
+
+    await sendSystemMessage(teamId, null, `${userName} left the team.`);
     res.status(200).json({ message: 'Successfully left the team.', teamId });
   } catch (error) {
     console.error('Error leaving team:', error);
@@ -688,6 +718,34 @@ const getActiveCallsList = (teamId) => {
       userName: activeCalls[cId].userName,
       userIds: (activeCalls[cId].participants || []).map(p => typeof p === 'object' ? p.userId : null).filter(Boolean)
     }));
+};
+
+const sendSystemMessage = async (teamId, channelId, text) => {
+  try {
+    let destChannelId = channelId;
+    if (!destChannelId) {
+      const team = await database.findTeamById(teamId);
+      if (!team) return;
+      const defaultChannel = team.channels && team.channels.find ? team.channels.find(c => c.id === 'general') || team.channels[0] : null;
+      if (!defaultChannel) return;
+      destChannelId = defaultChannel.id;
+    }
+    
+    const newMsg = await database.createMessage({
+      teamId,
+      channelId: destChannelId,
+      text,
+      senderId: 'system',
+      senderName: 'System',
+      senderAvatarColor: '#6b7280',
+      isSystem: true
+    });
+    
+    const roomName = `${teamId}_${destChannelId}`;
+    io.to(roomName).emit('receive_message', newMsg);
+  } catch (err) {
+    console.error('Error creating system message:', err);
+  }
 };
 
 io.on('connection', (socket) => {
@@ -900,6 +958,11 @@ io.on('connection', (socket) => {
   });
   
   socket.on('join_call_room', ({ teamId, channelId, userName, userId, userAvatarColor, userAvatarUrl }) => {
+    socket.userName = userName;
+    socket.userId = userId;
+    socket.activeCallTeamId = teamId;
+    socket.activeCallChannelId = channelId;
+
     const callRoomName = `call_${teamId}_${channelId}`;
     socket.join(callRoomName);
     
@@ -915,8 +978,11 @@ io.on('connection', (socket) => {
         participants: []
       };
     }
+    
+    let isNewParticipant = false;
     if (!activeCalls[channelId].participants.some(p => p.socketId === socket.id)) {
       activeCalls[channelId].participants.push({ socketId: socket.id, userId, userName });
+      isNewParticipant = true;
     }
 
     // Get all other participants in the call room
@@ -953,6 +1019,10 @@ io.on('connection', (socket) => {
     const activeList = getActiveCallsList(teamId);
     io.to(teamId).emit('active_calls_update', activeList);
     
+    if (isNewParticipant) {
+      sendSystemMessage(teamId, channelId, `${userName} joined the call.`);
+    }
+
     console.log(`Socket ${socket.id} joined call room: ${callRoomName}`);
   });
 
@@ -1001,8 +1071,15 @@ io.on('connection', (socket) => {
       socket.to(callRoomName).emit('screen_share_cleared');
     }
 
+    const userName = socket.userName || 'A user';
+    let wasInCall = false;
+
     if (activeCalls[channelId]) {
+      const initialLength = activeCalls[channelId].participants.length;
       activeCalls[channelId].participants = activeCalls[channelId].participants.filter(p => p.socketId !== socket.id);
+      if (activeCalls[channelId].participants.length < initialLength) {
+        wasInCall = true;
+      }
       if (activeCalls[channelId].participants.length === 0) {
         delete activeCalls[channelId];
       }
@@ -1013,6 +1090,10 @@ io.on('connection', (socket) => {
     // Notify everyone in the team of active call update
     const activeList = getActiveCallsList(teamId);
     io.to(teamId).emit('active_calls_update', activeList);
+
+    if (wasInCall) {
+      sendSystemMessage(teamId, channelId, `${userName} left the call.`);
+    }
 
     console.log(`Socket ${socket.id} left call room: ${callRoomName}`);
   });
@@ -1044,6 +1125,7 @@ io.on('connection', (socket) => {
     rooms.forEach((room) => {
       if (room.startsWith('call_')) {
         const parts = room.split('_');
+        const teamId = parts[1];
         const channelId = parts.slice(2).join('_');
         
         if (activeCalls[channelId] && activeCalls[channelId].screenSharer?.socketId === socket.id) {
@@ -1054,13 +1136,19 @@ io.on('connection', (socket) => {
         socket.to(room).emit('user_left_call', { socketId: socket.id });
         
         if (activeCalls[channelId]) {
+          const initialLength = activeCalls[channelId].participants.length;
           activeCalls[channelId].participants = activeCalls[channelId].participants.filter(p => p.socketId !== socket.id);
-          const teamId = activeCalls[channelId].teamId;
+          const wasInCall = activeCalls[channelId].participants.length < initialLength;
           if (activeCalls[channelId].participants.length === 0) {
             delete activeCalls[channelId];
           }
           const activeList = getActiveCallsList(teamId);
           io.to(teamId).emit('active_calls_update', activeList);
+          
+          if (wasInCall) {
+            const userName = socket.userName || 'A user';
+            sendSystemMessage(teamId, channelId, `${userName} left the call.`);
+          }
         }
       }
     });
