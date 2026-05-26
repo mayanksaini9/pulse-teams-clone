@@ -54,3 +54,63 @@ self.addEventListener('activate', (e) => {
     })
   );
 });
+
+// Handle incoming background Web Push notifications
+self.addEventListener('push', (e) => {
+  let data = { title: 'New Notification', body: '' };
+  try {
+    data = e.data.json();
+  } catch (err) {
+    if (e.data) {
+      data = { title: 'Pulse Message', body: e.data.text() };
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    vibrate: [100, 50, 100],
+    data: {
+      teamId: data.teamId,
+      channelId: data.channelId
+    }
+  };
+
+  e.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+// Handle clicking on background notification banner
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const clickAction = e.notification.data || {};
+  
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // If a window is already open, focus it and redirect
+      for (const client of clientList) {
+        if ('focus' in client) {
+          if (clickAction.teamId) {
+            // We can send a message to the client to update active team/channel
+            client.postMessage({
+              type: 'NAVIGATE_TO',
+              teamId: clickAction.teamId,
+              channelId: clickAction.channelId
+            });
+          }
+          return client.focus();
+        }
+      }
+      // If no window is open, open a new one with navigation parameters
+      if (clients.openWindow) {
+        let url = '/';
+        if (clickAction.teamId) {
+          url = `/?team=${clickAction.teamId}&channel=${clickAction.channelId}`;
+        }
+        return clients.openWindow(url);
+      }
+    })
+  );
+});

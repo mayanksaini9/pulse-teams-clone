@@ -9,12 +9,37 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const fs = require('fs');
 const mongoose = require('mongoose');
+const webpush = require('web-push');
 const database = require('./database');
 const { sendVerificationEmail } = require('./email');
 
 const app = express();
 const server = http.createServer(app);
+
+// Initialize Web Push VAPID details
+let vapidKeys;
+const vapidPath = path.resolve(__dirname, 'vapid.json');
+if (fs.existsSync(vapidPath)) {
+  try {
+    vapidKeys = JSON.parse(fs.readFileSync(vapidPath, 'utf8'));
+  } catch (err) {
+    console.error('Failed to parse vapid.json, regenerating:', err);
+    vapidKeys = webpush.generateVAPIDKeys();
+    fs.writeFileSync(vapidPath, JSON.stringify(vapidKeys, null, 2));
+  }
+} else {
+  vapidKeys = webpush.generateVAPIDKeys();
+  fs.writeFileSync(vapidPath, JSON.stringify(vapidKeys, null, 2));
+  console.log('Generated new persistent VAPID keys.');
+}
+
+webpush.setVapidDetails(
+  'mailto:support@pulseteams.com',
+  vapidKeys.publicKey,
+  vapidKeys.privateKey
+);
 
 // Connect to MongoDB
 const MONGODB_URI = (process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/pulse-teams').trim();
@@ -789,6 +814,28 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
 });
 
 
+// Get Public VAPID Key for Web Push Subscriptions
+app.get('/api/notifications/vapid-key', authenticateToken, (req, res) => {
+  res.status(200).json({ publicKey: vapidKeys.publicKey });
+});
+
+// Subscribe to Web Push Notifications
+app.post('/api/notifications/subscribe', authenticateToken, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription) {
+      return res.status(400).json({ message: 'Subscription object is required.' });
+    }
+    
+    await database.savePushSubscription(req.user.id, subscription);
+    res.status(200).json({ message: 'Successfully subscribed to Web Push notifications.' });
+  } catch (error) {
+    console.error('Error saving push subscription:', error);
+    res.status(500).json({ message: 'Server error saving push subscription.' });
+  }
+});
+
+
 // --- REALTIME SOCKET.IO SETUP ---
 const io = socketIo(server, {
   cors: {
@@ -913,6 +960,26 @@ io.on('connection', (socket) => {
       });
       
       io.to(teamId).emit('receive_message', newMsg);
+
+      // Dispatch Web Push notifications to all offline/background members of the team
+      try {
+        const subscriptions = await database.getPushSubscriptionsForTeam(teamId, senderId);
+        if (subscriptions && subscriptions.length > 0) {
+          const payload = JSON.stringify({
+            title: `New message in #${channelId}`,
+            body: `${senderName}: ${text.length > 60 ? text.substring(0, 60) + '...' : text}`,
+            teamId,
+            channelId
+          });
+          subscriptions.forEach(sub => {
+            webpush.sendNotification(sub, payload).catch(err => {
+              console.error('Failed sending Web Push notification:', err.statusCode);
+            });
+          });
+        }
+      } catch (pushErr) {
+        console.error('Error dispatching Web Push notifications:', pushErr);
+      }
 
       // --- AI ASSISTANT / SUMMARIZER LOOP ---
       const trimmedText = text.trim();

@@ -53,6 +53,7 @@ const UserSchema = new mongoose.Schema({
   department: { type: String, default: '' },
   verified: { type: Boolean, default: false },
   verificationToken: { type: String, default: '' },
+  pushSubscriptions: { type: Array, default: [] },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -612,6 +613,67 @@ const database = {
       const filtered = messages.filter(m => m.id !== messageId && m._id !== messageId);
       writeData('messages', filtered);
       return messages.length !== filtered.length;
+    }
+  },
+
+  savePushSubscription: async (userId, subscription) => {
+    if (!userId || !subscription) return;
+    if (isMongoConnected()) {
+      const user = await User.findOne({ id: userId });
+      if (user) {
+        if (!user.pushSubscriptions) user.pushSubscriptions = [];
+        const exists = user.pushSubscriptions.some(sub => sub.endpoint === subscription.endpoint);
+        if (!exists) {
+          user.pushSubscriptions.push(subscription);
+          await user.save();
+        }
+      }
+    } else {
+      const users = readData('users');
+      const index = users.findIndex(u => u.id === userId);
+      if (index !== -1) {
+        const user = users[index];
+        if (!user.pushSubscriptions) user.pushSubscriptions = [];
+        const exists = user.pushSubscriptions.some(sub => sub.endpoint === subscription.endpoint);
+        if (!exists) {
+          user.pushSubscriptions.push(subscription);
+          users[index] = user;
+          writeData('users', users);
+        }
+      }
+    }
+  },
+
+  getPushSubscriptionsForTeam: async (teamId, excludeUserId) => {
+    if (!teamId) return [];
+    if (isMongoConnected()) {
+      const team = await Team.findOne({ id: teamId }).lean();
+      if (!team) return [];
+      const memberIds = team.members.filter(id => id.toString() !== excludeUserId.toString());
+      const query = mongoose.Types.ObjectId.isValid(excludeUserId)
+        ? { id: { $in: memberIds } }
+        : { id: { $in: memberIds } }; // Fallback
+      const members = await User.find({ id: { $in: memberIds } }).lean();
+      let subscriptions = [];
+      members.forEach(m => {
+        if (m.pushSubscriptions && Array.isArray(m.pushSubscriptions)) {
+          subscriptions = subscriptions.concat(m.pushSubscriptions);
+        }
+      });
+      return subscriptions;
+    } else {
+      const teams = readData('teams');
+      const team = teams.find(t => t.id === teamId);
+      if (!team) return [];
+      const memberIds = team.members.filter(id => id.toString() !== excludeUserId.toString());
+      const users = readData('users');
+      let subscriptions = [];
+      users.forEach(u => {
+        if (memberIds.includes(u.id) && u.pushSubscriptions && Array.isArray(u.pushSubscriptions)) {
+          subscriptions = subscriptions.concat(u.pushSubscriptions);
+        }
+      });
+      return subscriptions;
     }
   },
 

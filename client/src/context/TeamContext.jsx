@@ -255,10 +255,61 @@ export const TeamProvider = ({ children }) => {
         fetchTeams();
       });
 
-      newSocket.on('connect_error', (err) => {
-        console.error('Socket connection error:', err);
-      });
+      const setupWebPushNotifications = async () => {
+        try {
+          if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            console.log('Web Push is not supported on this browser.');
+            return;
+          }
 
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') {
+            console.log('Notification permission not granted.');
+            return;
+          }
+
+          const vapidRes = await fetch('/api/notifications/vapid-key', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          if (!vapidRes.ok) return;
+          const { publicKey } = await vapidRes.json();
+
+          const urlBase64ToUint8Array = (base64String) => {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+              .replace(/\-/g, '+')
+              .replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) {
+              outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+          };
+          const convertedKey = urlBase64ToUint8Array(publicKey);
+
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: convertedKey
+          });
+
+          await fetch('/api/notifications/subscribe', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ subscription })
+          });
+        } catch (err) {
+          console.error('Error setup Web Push:', err);
+        }
+      };
+
+      setupWebPushNotifications();
       fetchTeams();
 
       return () => {
@@ -273,6 +324,57 @@ export const TeamProvider = ({ children }) => {
       setMembers([]);
     }
   }, [token, user]);
+
+  // Handle navigation messages from Service Worker (when notification is clicked)
+  useEffect(() => {
+    const handleSWMessage = (event) => {
+      if (event.data && event.data.type === 'NAVIGATE_TO') {
+        const { teamId, channelId } = event.data;
+        if (teamId) {
+          const targetTeam = teams.find(t => t.id === teamId);
+          if (targetTeam) {
+            setCurrentTeam(targetTeam);
+            if (channelId) {
+              const targetChannel = targetTeam.channels?.find(c => c.id === channelId);
+              if (targetChannel) {
+                setCurrentChannel(targetChannel);
+              }
+            }
+          }
+        }
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSWMessage);
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+      };
+    }
+  }, [teams]);
+
+  // Check URL params for deep linking on app load
+  useEffect(() => {
+    if (teams && teams.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const teamIdParam = params.get('team');
+      const channelIdParam = params.get('channel');
+      if (teamIdParam) {
+        const targetTeam = teams.find(t => t.id === teamIdParam);
+        if (targetTeam) {
+          setCurrentTeam(targetTeam);
+          if (channelIdParam) {
+            const targetChannel = targetTeam.channels?.find(c => c.id === channelIdParam);
+            if (targetChannel) {
+              setCurrentChannel(targetChannel);
+            }
+          }
+          // Clean up search query parameter
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+    }
+  }, [teams]);
 
   // Subscribe to team notifications room and load members
   useEffect(() => {
