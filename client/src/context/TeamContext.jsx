@@ -16,6 +16,41 @@ export const TeamProvider = ({ children }) => {
   const [messages, setMessages] = useState({});
   const [socket, setSocket] = useState(null);
 
+  // Mobile push notification banner state
+  const [activeNotification, setActiveNotification] = useState(null);
+
+  const currentTeamRef = useRef(currentTeam);
+  const currentChannelRef = useRef(currentChannel);
+
+  useEffect(() => {
+    currentTeamRef.current = currentTeam;
+  }, [currentTeam]);
+
+  useEffect(() => {
+    currentChannelRef.current = currentChannel;
+  }, [currentChannel]);
+
+  const triggerMobileNotification = (notification) => {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (!isMobile) return;
+
+    setActiveNotification(notification);
+
+    // Play chime sound
+    try {
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
+      audio.volume = 0.45;
+      audio.play().catch(err => console.log('Notification chime play blocked:', err));
+    } catch (e) {
+      console.error(e);
+    }
+
+    // Vibrate device
+    if (navigator.vibrate) {
+      navigator.vibrate([80, 40, 80]);
+    }
+  };
+
   // Fetch teams for the user
   const fetchTeams = async () => {
     if (!token) return;
@@ -28,17 +63,58 @@ export const TeamProvider = ({ children }) => {
       });
       if (response.ok) {
         const data = await response.json();
-        setTeams(data);
+        
+        setTeams(prevTeams => {
+          if (prevTeams.length > 0) {
+            // Detect added to a new team
+            const newTeam = data.find(t => !prevTeams.some(prev => prev.id === t.id));
+            if (newTeam) {
+              triggerMobileNotification({
+                type: 'team_added',
+                title: 'Added to a Team',
+                body: `You are now a member of ${newTeam.name}!`,
+                teamId: newTeam.id
+              });
+            }
+
+            // Detect promotion/demotion
+            data.forEach(newT => {
+              const prevT = prevTeams.find(prev => prev.id === newT.id);
+              if (prevT) {
+                const wasAdmin = prevT.admins?.includes(user?.id);
+                const isAdmin = newT.admins?.includes(user?.id);
+                if (wasAdmin !== undefined && wasAdmin !== isAdmin) {
+                  if (isAdmin) {
+                    triggerMobileNotification({
+                      type: 'promote',
+                      title: 'Promoted to Admin',
+                      body: `You are now an Admin of ${newT.name}!`,
+                      teamId: newT.id
+                    });
+                  } else {
+                    triggerMobileNotification({
+                      type: 'demote',
+                      title: 'Demoted to Member',
+                      body: `You are now a Member in ${newT.name}`,
+                      teamId: newT.id
+                    });
+                  }
+                }
+              }
+            });
+          }
+          return data;
+        });
         
         // Auto-select first team if none is selected
         if (data.length > 0) {
-          if (!currentTeam) {
+          if (!currentTeamRef.current) {
             setCurrentTeam(data[0]);
             if (data[0].channels && data[0].channels.length > 0) {
               setCurrentChannel(data[0].channels[0]);
             }
           } else {
-            const updatedActiveTeam = data.find(t => t.id === currentTeam.id);
+            const updatedActiveTeam = data.find(t => t.id === currentTeamRef.current.id);
             if (updatedActiveTeam) {
               setCurrentTeam(updatedActiveTeam);
             }
@@ -97,6 +173,42 @@ export const TeamProvider = ({ children }) => {
           ...prev,
           [chatKey]: [...(prev[chatKey] || []), msg]
         }));
+
+        // Notification trigger check
+        const isCurrentChannel = currentTeamRef.current?.id === msg.teamId && currentChannelRef.current?.id === msg.channelId;
+        if (!isCurrentChannel && msg.senderId !== user.id && !msg.isSystem) {
+          triggerMobileNotification({
+            type: 'message',
+            title: `New message in #${msg.channelId}`,
+            body: `${msg.senderName}: ${msg.text.length > 50 ? msg.text.substring(0, 50) + '...' : msg.text}`,
+            teamId: msg.teamId,
+            channelId: msg.channelId
+          });
+        }
+      });
+
+      // Handle real-time member kicked alert
+      newSocket.on('member_kicked', ({ teamId, userId }) => {
+        if (userId === user.id) {
+          triggerMobileNotification({
+            type: 'team_removed',
+            title: 'Removed from Team',
+            body: `You were removed from team: ${teamId}`,
+            teamId: teamId
+          });
+          fetchTeams();
+        }
+      });
+
+      // Handle real-time incoming call alert
+      newSocket.on('incoming_call', ({ teamId, channelId, channelName, userName, callType }) => {
+        triggerMobileNotification({
+          type: 'call',
+          title: `Incoming ${callType} Call`,
+          body: `${userName} is calling you in #${channelName}`,
+          teamId,
+          channelId
+        });
       });
 
       // Handle real-time message deletion
@@ -406,7 +518,9 @@ export const TeamProvider = ({ children }) => {
       leaveTeam,
       socket,
       setCurrentTeam: selectTeam,
-      setCurrentChannel
+      setCurrentChannel,
+      activeNotification,
+      setActiveNotification
     }}>
       {children}
     </TeamContext.Provider>

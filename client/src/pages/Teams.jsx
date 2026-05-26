@@ -1265,12 +1265,16 @@ const Teams = () => {
 
     const handleMemberKick = ({ teamId, userId }) => {
       if (userId === user.id) {
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        if (isMobile) return;
         alert(`You have been removed from the team: ${teamId}.`);
         window.location.reload();
       }
     };
 
     const handleTeamUpdate = ({ teamId }) => {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile) return;
       if (currentTeam && currentTeam.id === teamId) {
         window.location.reload();
       }
