@@ -6,7 +6,7 @@ import {
   Search, Plus, ChevronDown, Check, User, Sparkles, Shield, Hash, 
   ArrowUpRight, TrendingUp, Calendar, Copy, Eye, EyeOff, X, Send,
   Paperclip, Smile, Users as GroupIcon, ShieldAlert, Key, ClipboardCheck,
-  Download, File as FileIcon, Menu, Mic, Camera, Code, RefreshCw, Trash2
+  Download, File as FileIcon, Menu, Mic, Camera, Code, RefreshCw, Trash2, Terminal, Maximize2
 } from 'lucide-react';
 
 import { CallOverlay } from './CallOverlay';
@@ -1394,6 +1394,14 @@ const Teams = () => {
       userId: user.id,
       userName: user.name
     });
+  };
+
+  const handleMinimizeSuperEditor = () => {
+    setSuperEditorMinimized(true);
+  };
+
+  const handleMaximizeSuperEditor = () => {
+    setSuperEditorMinimized(false);
   };
 
   const handleCellFocus = (cellId) => {
@@ -3182,7 +3190,7 @@ const Teams = () => {
                           position: 'relative'
                         }}
                       >
-                        <Code size={18} />
+                        <Terminal size={18} />
                       </button>
                       <button 
                         type="button" 
