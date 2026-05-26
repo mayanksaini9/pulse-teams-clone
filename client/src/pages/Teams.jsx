@@ -293,12 +293,20 @@ const Teams = () => {
   const [activeLightboxColor, setActiveLightboxColor] = useState('#6366f1');
   const [showAboutModal, setShowAboutModal] = useState(false);
 
+  // Super Editor States
+  const [activeSuperEditors, setActiveSuperEditors] = useState([]);
+  const [superEditorOpen, setSuperEditorOpen] = useState(false);
+  const [superEditorMinimized, setSuperEditorMinimized] = useState(false);
+  const [superEditorCells, setSuperEditorCells] = useState([]);
+  const [superEditorLock, setSuperEditorLock] = useState(null);
+  const [superEditorParticipants, setSuperEditorParticipants] = useState([]);
+
   const openLightbox = (url, name, color = '#6366f1') => {
     setActiveLightboxImg(url || 'initials');
     setActiveLightboxTitle(name);
     setActiveLightboxColor(color);
   };
-  
+
   // Custom states for small features
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [showChannelModal, setShowChannelModal] = useState(false);
@@ -1318,6 +1326,250 @@ const Teams = () => {
       socket.off('ai_typing_state', handleAiTypingState);
     };
   }, [socket, currentTeam, user]);
+
+  // Super Editor Socket Listeners & Controls
+  useEffect(() => {
+    if (!socket) return;
+
+    // Get active editors on load or team change
+    if (currentTeam) {
+      socket.emit('get_active_super_editors', { teamId: currentTeam.id });
+    }
+
+    const handleStatusUpdate = (list) => {
+      setActiveSuperEditors(list || []);
+    };
+
+    const handleCellsChanged = ({ cells }) => {
+      setSuperEditorCells(cells);
+    };
+
+    const handleLockChanged = (lock) => {
+      setSuperEditorLock(lock);
+    };
+
+    const handleUsersUpdate = (users) => {
+      setSuperEditorParticipants(users);
+    };
+
+    const handleCellsState = ({ cells, lock }) => {
+      setSuperEditorCells(cells);
+      setSuperEditorLock(lock);
+    };
+
+    socket.on('super_editor_status_update', handleStatusUpdate);
+    socket.on('super_editor_cells_changed', handleCellsChanged);
+    socket.on('super_editor_lock_changed', handleLockChanged);
+    socket.on('super_editor_users_update', handleUsersUpdate);
+    socket.on('super_editor_cells_state', handleCellsState);
+
+    return () => {
+      socket.off('super_editor_status_update', handleStatusUpdate);
+      socket.off('super_editor_cells_changed', handleCellsChanged);
+      socket.off('super_editor_lock_changed', handleLockChanged);
+      socket.off('super_editor_users_update', handleUsersUpdate);
+      socket.off('super_editor_cells_state', handleCellsState);
+    };
+  }, [socket, currentTeam]);
+
+  const handleOpenSuperEditor = () => {
+    if (!socket || !currentTeam || !currentChannel) return;
+    setSuperEditorOpen(true);
+    setSuperEditorMinimized(false);
+    socket.emit('join_super_editor', {
+      teamId: currentTeam.id,
+      channelId: currentChannel.id,
+      userId: user.id,
+      userName: user.name
+    });
+  };
+
+  const handleCloseSuperEditor = () => {
+    if (!socket || !currentTeam || !currentChannel) return;
+    setSuperEditorOpen(false);
+    setSuperEditorMinimized(false);
+    socket.emit('leave_super_editor', {
+      teamId: currentTeam.id,
+      channelId: currentChannel.id,
+      userId: user.id,
+      userName: user.name
+    });
+  };
+
+  const handleCellFocus = (cellId) => {
+    if (!socket || !currentTeam || !currentChannel) return;
+    socket.emit('super_editor_acquire_lock', {
+      teamId: currentTeam.id,
+      channelId: currentChannel.id,
+      cellId,
+      userId: user.id,
+      userName: user.name
+    });
+  };
+
+  const handleCellCodeChange = (cellId, newCode) => {
+    const updated = superEditorCells.map(c => c.id === cellId ? { ...c, code: newCode } : c);
+    setSuperEditorCells(updated);
+    
+    if (socket && currentTeam && currentChannel) {
+      socket.emit('super_editor_update_cells', {
+        teamId: currentTeam.id,
+        channelId: currentChannel.id,
+        cells: updated
+      });
+    }
+  };
+
+  const handleCellBlur = (cellId) => {
+    if (!socket || !currentTeam || !currentChannel) return;
+    socket.emit('super_editor_release_lock', {
+      teamId: currentTeam.id,
+      channelId: currentChannel.id,
+      cellId,
+      userId: user.id
+    });
+  };
+
+  const handleCellRun = (cellId) => {
+    const cell = superEditorCells.find(c => c.id === cellId);
+    if (!cell) return;
+
+    let output = '';
+    if (cell.language === 'javascript') {
+      let logs = [];
+      const mockConsole = {
+        log: (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')),
+        error: (...args) => logs.push('ERROR: ' + args.join(' ')),
+        warn: (...args) => logs.push('WARN: ' + args.join(' '))
+      };
+      try {
+        const runFn = new Function('console', cell.code);
+        runFn(mockConsole);
+        output = logs.join('\n') || 'Executed successfully (no output).';
+      } catch (err) {
+        output = `Runtime Error: ${err.message}`;
+      }
+    } else if (cell.language === 'html') {
+      output = `<iframe srcdoc="${encodeURIComponent(cell.code)}" style="width:100%; height:220px; border:none; background:#fff; border-radius:8px;"></iframe>`;
+    } else if (cell.language === 'python') {
+      let logs = [];
+      const lines = cell.code.split('\n');
+      try {
+        let vars = {};
+        lines.forEach(line => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return;
+          
+          const printMatch = trimmed.match(/^print\((.*)\)$/);
+          if (printMatch) {
+            const expr = printMatch[1];
+            const parts = expr.split(',').map(p => p.trim());
+            const evaluated = parts.map(part => {
+              if ((part.startsWith('"') && part.endsWith('"')) || (part.startsWith("'") && part.endsWith("'"))) {
+                return part.slice(1, -1);
+              }
+              if (vars[part] !== undefined) return vars[part];
+              try {
+                return window.eval(part);
+              } catch(e) {
+                return part;
+              }
+            });
+            logs.push(evaluated.join(' '));
+            return;
+          }
+          
+          const assignMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$/);
+          if (assignMatch) {
+            const varName = assignMatch[1];
+            let valExpr = assignMatch[2];
+            if ((valExpr.startsWith('"') && valExpr.endsWith('"')) || (valExpr.startsWith("'") && valExpr.endsWith("'"))) {
+              vars[varName] = valExpr.slice(1, -1);
+            } else {
+              Object.keys(vars).forEach(v => {
+                valExpr = valExpr.replace(new RegExp(`\\b${v}\\b`, 'g'), vars[v]);
+              });
+              vars[varName] = window.eval(valExpr);
+            }
+          }
+        });
+        output = logs.join('\n') || 'Executed successfully.';
+      } catch (err) {
+        output = `Python Interpreter Error: ${err.message}`;
+      }
+    }
+
+    const updated = superEditorCells.map(c => c.id === cellId ? { ...c, output } : c);
+    setSuperEditorCells(updated);
+    
+    if (socket && currentTeam && currentChannel) {
+      socket.emit('super_editor_update_cells', {
+        teamId: currentTeam.id,
+        channelId: currentChannel.id,
+        cells: updated
+      });
+    }
+  };
+
+  const handleCellLanguageChange = (cellId, language) => {
+    const updated = superEditorCells.map(c => c.id === cellId ? { ...c, language } : c);
+    setSuperEditorCells(updated);
+    
+    if (socket && currentTeam && currentChannel) {
+      socket.emit('super_editor_update_cells', {
+        teamId: currentTeam.id,
+        channelId: currentChannel.id,
+        cells: updated
+      });
+    }
+  };
+
+  const handleCellDelete = (cellId) => {
+    if (superEditorCells.length <= 1) {
+      alert("You must keep at least one cell in the notebook.");
+      return;
+    }
+    const updated = superEditorCells.filter(c => c.id !== cellId);
+    setSuperEditorCells(updated);
+    
+    if (socket && currentTeam && currentChannel) {
+      socket.emit('super_editor_update_cells', {
+        teamId: currentTeam.id,
+        channelId: currentChannel.id,
+        cells: updated
+      });
+    }
+  };
+
+  const handleCellAdd = () => {
+    const newCell = {
+      id: 'cell-' + Date.now(),
+      code: '// Write code here...\n',
+      output: '',
+      language: 'javascript'
+    };
+    const updated = [...superEditorCells, newCell];
+    setSuperEditorCells(updated);
+    
+    if (socket && currentTeam && currentChannel) {
+      socket.emit('super_editor_update_cells', {
+        teamId: currentTeam.id,
+        channelId: currentChannel.id,
+        cells: updated
+      });
+    }
+  };
+
+  const handleDownloadCode = () => {
+    const codeContent = superEditorCells.map((c, i) => `# Cell ${i + 1} [${c.language}]\n${c.code}\n`).join('\n');
+    const blob = new Blob([codeContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `notebook-${currentChannel?.name || 'export'}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handlePromoteAdmin = async (memberId) => {
     if (!window.confirm("Are you sure you want to promote this member to Admin?")) return;
@@ -2922,6 +3174,18 @@ const Teams = () => {
                       />
                       <button 
                         type="button" 
+                        className={`input-action-btn ${activeSuperEditors.some(e => e.channelId === currentChannel?.id) ? 'super-editor-btn-blinking' : ''}`}
+                        title="Open Super Editor Collaboration Notebook"
+                        onClick={handleOpenSuperEditor}
+                        style={{ 
+                          color: activeSuperEditors.some(e => e.channelId === currentChannel?.id) ? '#d946ef' : 'var(--text-secondary)',
+                          position: 'relative'
+                        }}
+                      >
+                        <Code size={18} />
+                      </button>
+                      <button 
+                        type="button" 
                         className="input-action-btn" 
                         title="Add Emoji"
                         onClick={() => {
@@ -4196,6 +4460,402 @@ const Teams = () => {
                 Close Details
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Super Editor Global CSS Styles */}
+      <style>{`
+        .super-editor-btn-blinking {
+          animation: super-editor-glow 1.5s infinite alternate;
+        }
+        @keyframes super-editor-glow {
+          0% {
+            box-shadow: 0 0 4px rgba(168, 85, 247, 0.4);
+            background-color: rgba(168, 85, 247, 0.1);
+          }
+          50% {
+            box-shadow: 0 0 16px rgba(217, 70, 239, 0.8);
+            background-color: rgba(217, 70, 239, 0.25);
+          }
+          100% {
+            box-shadow: 0 0 4px rgba(168, 85, 247, 0.4);
+            background-color: rgba(168, 85, 247, 0.1);
+          }
+        }
+        .super-editor-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: #090a0f;
+          z-index: 9999;
+          display: flex;
+          flex-direction: column;
+          color: #f8fafc;
+          font-family: 'Outfit', sans-serif;
+        }
+        .super-editor-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 24px;
+          background: rgba(255, 255, 255, 0.02);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .super-editor-body {
+          flex-grow: 1;
+          overflow-y: auto;
+          padding: 24px 32px;
+          max-width: 1000px;
+          width: 100%;
+          margin: 0 auto;
+        }
+        .super-editor-cell {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
+          margin-bottom: 24px;
+          overflow: hidden;
+          transition: all 0.25s ease;
+        }
+        .super-editor-cell.locked {
+          border-color: rgba(239, 68, 68, 0.4);
+          background: rgba(239, 68, 68, 0.02);
+        }
+        .super-editor-cell-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 16px;
+          background: rgba(255, 255, 255, 0.02);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .super-editor-textarea {
+          width: 100%;
+          background: transparent;
+          border: none;
+          color: #e2e8f0;
+          font-family: 'Consolas', 'Monaco', monospace;
+          font-size: 14px;
+          line-height: 1.6;
+          padding: 16px;
+          resize: vertical;
+          min-height: 140px;
+          outline: none;
+        }
+        .super-editor-output {
+          background: #040508;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 16px;
+          position: relative;
+          font-family: 'Consolas', monospace;
+          font-size: 13px;
+          color: #10b981;
+          white-space: pre-wrap;
+        }
+        .super-editor-minimized-panel {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          width: 340px;
+          background: rgba(10, 11, 16, 0.95);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(139, 92, 246, 0.4);
+          box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+          border-radius: 12px;
+          z-index: 9998;
+          overflow: hidden;
+        }
+      `}</style>
+
+      {/* Main Full-Screen Super Editor Overlay */}
+      {superEditorOpen && !superEditorMinimized && (
+        <div className="super-editor-overlay animate-fade">
+          <div className="super-editor-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, #a855f7 0%, #d946ef 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Code size={20} color="white" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Pulse Super Editor</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Collaborative Jupyter Notebook Mode</span>
+              </div>
+            </div>
+
+            {/* Active Users coding tracker */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }}></span>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {superEditorParticipants.length} active coder{superEditorParticipants.length !== 1 ? 's' : ''}:
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {superEditorParticipants.map(p => (
+                  <span 
+                    key={p.socketId} 
+                    style={{ 
+                      fontSize: '11px', 
+                      background: 'rgba(255,255,255,0.06)', 
+                      padding: '2px 8px', 
+                      borderRadius: '12px',
+                      color: p.userId === user.id ? 'var(--accent-primary)' : '#fff'
+                    }}
+                  >
+                    {p.userName} {p.userId === user.id && '(you)'}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Editor Action buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button 
+                onClick={handleCellAdd}
+                className="modal-action-btn"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px'
+                }}
+              >
+                <Plus size={14} />
+                <span>Add Cell</span>
+              </button>
+
+              <button 
+                onClick={handleDownloadCode}
+                className="modal-action-btn"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px'
+                }}
+              >
+                <Download size={14} />
+                <span>Download Notebook</span>
+              </button>
+
+              <button 
+                onClick={handleMinimizeSuperEditor}
+                className="modal-action-btn"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px'
+                }}
+              >
+                <span>Minimize</span>
+              </button>
+
+              <button 
+                onClick={handleCloseSuperEditor}
+                className="modal-action-btn primary"
+                style={{
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  color: '#f87171',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600
+                }}
+              >
+                Exit Session
+              </button>
+            </div>
+          </div>
+
+          <div className="super-editor-body">
+            {superEditorCells.map((cell, index) => {
+              const isCellLocked = superEditorLock && superEditorLock.cellId === cell.id && superEditorLock.userId !== user.id;
+              
+              return (
+                <div 
+                  key={cell.id} 
+                  className={`super-editor-cell ${isCellLocked ? 'locked' : ''}`}
+                >
+                  <div className="super-editor-cell-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                        In [{index + 1}]:
+                      </span>
+                      
+                      {/* Language Selector Dropdown */}
+                      <select
+                        value={cell.language}
+                        disabled={isCellLocked}
+                        onChange={(e) => handleCellLanguageChange(cell.id, e.target.value)}
+                        style={{
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '6px',
+                          color: '#fff',
+                          padding: '3px 8px',
+                          fontSize: '12px',
+                          outline: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="javascript" style={{ background: '#0f111a' }}>JavaScript</option>
+                        <option value="python" style={{ background: '#0f111a' }}>Python (Sandboxed)</option>
+                        <option value="html" style={{ background: '#0f111a' }}>HTML/CSS Frame</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      {isCellLocked ? (
+                        <span style={{ fontSize: '11px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          🔒 Locked by {superEditorLock.userName} typing...
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleCellRun(cell.id)}
+                            style={{
+                              background: 'var(--accent-primary)',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '4px 12px',
+                              color: 'white',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            Run Cell
+                          </button>
+                          <button
+                            onClick={() => handleCellDelete(cell.id)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'rgba(255,255,255,0.4)',
+                              cursor: 'pointer',
+                              padding: '4px'
+                            }}
+                            title="Delete Cell"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Code editor textarea */}
+                  <textarea
+                    className="super-editor-textarea"
+                    value={cell.code}
+                    readOnly={isCellLocked}
+                    onFocus={() => handleCellFocus(cell.id)}
+                    onChange={(e) => handleCellCodeChange(cell.id, e.target.value)}
+                    onBlur={() => handleCellBlur(cell.id)}
+                    placeholder="// Write code here..."
+                  />
+
+                  {/* Cell output display */}
+                  {cell.output && (
+                    <div className="super-editor-output">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '6px', marginBottom: '8px' }}>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px', fontWeight: 600 }}>Cell Execution Output:</span>
+                        <button 
+                          onClick={() => {
+                            const updated = superEditorCells.map(c => c.id === cell.id ? { ...c, output: '' } : c);
+                            setSuperEditorCells(updated);
+                            if (socket && currentTeam && currentChannel) {
+                              socket.emit('super_editor_update_cells', {
+                                teamId: currentTeam.id,
+                                channelId: currentChannel.id,
+                                cells: updated
+                              });
+                            }
+                          }}
+                          style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '11px' }}
+                        >
+                          Clear Output [x]
+                        </button>
+                      </div>
+                      {cell.language === 'html' ? (
+                        <div dangerouslySetInnerHTML={{ __html: cell.output }} />
+                      ) : (
+                        <div style={{ maxPercent: '100%', overflowX: 'auto' }}>{cell.output}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Minimized Floating Super Editor panel */}
+      {superEditorOpen && superEditorMinimized && (
+        <div className="super-editor-minimized-panel">
+          <div style={{
+            background: 'linear-gradient(135deg, #7c3aed 0%, #c084fc 100%)',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Code size={16} color="white" />
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'white' }}>Super Editor Active</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={handleMaximizeSuperEditor}
+                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '4px', padding: '2px 8px', color: 'white', cursor: 'pointer', fontSize: '11px' }}
+              >
+                Restore
+              </button>
+              <button 
+                onClick={handleCloseSuperEditor}
+                style={{ background: 'rgba(239, 68, 68, 0.4)', border: 'none', borderRadius: '4px', padding: '2px 8px', color: 'white', cursor: 'pointer', fontSize: '11px' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)' }}>
+            Collaborating live with {superEditorParticipants.length} user{superEditorParticipants.length !== 1 ? 's' : ''} in notebook. Minimize lets you chat and talk on calls while keeping editor session active.
           </div>
         </div>
       )}
