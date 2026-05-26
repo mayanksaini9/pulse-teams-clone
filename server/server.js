@@ -846,6 +846,17 @@ const io = socketIo(server, {
 });
 
 const activeCalls = {};
+const activeSuperEditors = {};
+
+const getActiveSuperEditorsList = (teamId) => {
+  return Object.keys(activeSuperEditors)
+    .filter(cId => activeSuperEditors[cId].teamId === teamId && (activeSuperEditors[cId].participants || []).length > 0)
+    .map(cId => ({
+      channelId: cId,
+      participantCount: activeSuperEditors[cId].participants.length,
+      userIds: activeSuperEditors[cId].participants.map(p => p.userId)
+    }));
+};
 
 const getActiveCallsList = (teamId) => {
   return Object.keys(activeCalls)
@@ -1293,6 +1304,105 @@ io.on('connection', (socket) => {
     socket.emit('active_calls_update', activeList);
   });
 
+  // Super Editor real-time collaborative notebook logic
+  socket.on('join_super_editor', ({ teamId, channelId, userId, userName }) => {
+    const editorRoomName = `super_editor_${channelId}`;
+    socket.join(editorRoomName);
+    
+    if (!activeSuperEditors[channelId]) {
+      activeSuperEditors[channelId] = {
+        teamId,
+        channelId,
+        participants: [],
+        cells: [
+          { id: 'cell-1', code: '// Start writing code here...\nconsole.log("Hello, Pulse Super Editor!");', output: '', language: 'javascript' }
+        ],
+        lock: null
+      };
+    }
+    
+    const editor = activeSuperEditors[channelId];
+    
+    // Check if participant is already listed
+    if (!editor.participants.some(p => p.socketId === socket.id)) {
+      editor.participants.push({ userId, userName, socketId: socket.id });
+      
+      if (editor.participants.length === 1) {
+        sendSystemMessage(teamId, channelId, `${userName} has started Super Editor`);
+      } else {
+        sendSystemMessage(teamId, channelId, `${userName} joined the Super Editor`);
+      }
+    }
+    
+    // Send current cells state to the joining client
+    socket.emit('super_editor_cells_state', { cells: editor.cells, lock: editor.lock });
+    
+    // Notify all participants in editor room and all users in the team
+    io.to(editorRoomName).emit('super_editor_users_update', editor.participants);
+    io.to(teamId).emit('super_editor_status_update', getActiveSuperEditorsList(teamId));
+  });
+
+  socket.on('leave_super_editor', ({ teamId, channelId, userId, userName }) => {
+    const editorRoomName = `super_editor_${channelId}`;
+    socket.leave(editorRoomName);
+    
+    const editor = activeSuperEditors[channelId];
+    if (editor) {
+      const initialLength = editor.participants.length;
+      editor.participants = editor.participants.filter(p => p.socketId !== socket.id);
+      
+      if (editor.participants.length < initialLength) {
+        sendSystemMessage(teamId, channelId, `${userName} left the Super Editor`);
+      }
+      
+      // If no participants left, close the editor session
+      if (editor.participants.length === 0) {
+        sendSystemMessage(teamId, channelId, `Super Editor is closed.`);
+        delete activeSuperEditors[channelId];
+      } else {
+        // If the user held the lock, release it
+        if (editor.lock && editor.lock.userId === userId) {
+          editor.lock = null;
+          io.to(editorRoomName).emit('super_editor_lock_changed', null);
+        }
+        io.to(editorRoomName).emit('super_editor_users_update', editor.participants);
+      }
+    }
+    
+    // Broadcast active editor list update to team
+    io.to(teamId).emit('super_editor_status_update', getActiveSuperEditorsList(teamId));
+  });
+
+  socket.on('super_editor_update_cells', ({ teamId, channelId, cells }) => {
+    const editor = activeSuperEditors[channelId];
+    if (editor) {
+      editor.cells = cells;
+      // Broadcast current cells state to other participants
+      socket.to(`super_editor_${channelId}`).emit('super_editor_cells_changed', { cells });
+    }
+  });
+
+  socket.on('super_editor_acquire_lock', ({ teamId, channelId, cellId, userId, userName }) => {
+    const editor = activeSuperEditors[channelId];
+    if (editor) {
+      // Set lock state
+      editor.lock = { cellId, userId, userName };
+      io.to(`super_editor_${channelId}`).emit('super_editor_lock_changed', editor.lock);
+    }
+  });
+
+  socket.on('super_editor_release_lock', ({ teamId, channelId, cellId, userId }) => {
+    const editor = activeSuperEditors[channelId];
+    if (editor && editor.lock && editor.lock.userId === userId && editor.lock.cellId === cellId) {
+      editor.lock = null;
+      io.to(`super_editor_${channelId}`).emit('super_editor_lock_changed', null);
+    }
+  });
+
+  socket.on('get_active_super_editors', ({ teamId }) => {
+    socket.emit('super_editor_status_update', getActiveSuperEditorsList(teamId));
+  });
+
   socket.on('disconnecting', async () => {
     if (socket.userId) {
       const userId = socket.userId;
@@ -1334,10 +1444,34 @@ io.on('connection', (socket) => {
           }
           const activeList = getActiveCallsList(teamId);
           io.to(teamId).emit('active_calls_update', activeList);
-          
           if (wasInCall) {
             const userName = socket.userName || 'A user';
             sendSystemMessage(teamId, channelId, `${userName} left the call.`);
+          }
+        }
+      }
+
+      if (room.startsWith('super_editor_')) {
+        const channelId = room.substring('super_editor_'.length);
+        const editor = activeSuperEditors[channelId];
+        if (editor) {
+          const participant = editor.participants.find(p => p.socketId === socket.id);
+          if (participant) {
+            const { userId, userName } = participant;
+            editor.participants = editor.participants.filter(p => p.socketId !== socket.id);
+            sendSystemMessage(editor.teamId, channelId, `${userName} left the Super Editor`);
+            
+            if (editor.participants.length === 0) {
+              sendSystemMessage(editor.teamId, channelId, `Super Editor is closed.`);
+              delete activeSuperEditors[channelId];
+            } else {
+              if (editor.lock && editor.lock.userId === userId) {
+                editor.lock = null;
+                io.to(room).emit('super_editor_lock_changed', null);
+              }
+              io.to(room).emit('super_editor_users_update', editor.participants);
+            }
+            io.to(editor.teamId).emit('super_editor_status_update', getActiveSuperEditorsList(editor.teamId));
           }
         }
       }
