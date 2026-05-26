@@ -832,8 +832,7 @@ const sendSystemMessage = async (teamId, channelId, text) => {
       isSystem: true
     });
     
-    const roomName = `${teamId}_${destChannelId}`;
-    io.to(roomName).emit('receive_message', newMsg);
+    io.to(teamId).emit('receive_message', newMsg);
   } catch (err) {
     console.error('Error creating system message:', err);
   }
@@ -844,12 +843,22 @@ io.on('connection', (socket) => {
 
   socket.on('user_connected', async ({ userId }) => {
     socket.userId = userId;
+    socket.join(userId); // Join personal room
     console.log(`User ${userId} associated with socket ${socket.id}`);
     try {
       await database.updateUser(userId, { status: 'online' });
       io.emit('user_status_change', { userId, status: 'online' });
+      
+      // Auto-join all team rooms this user belongs to
+      const userTeams = await database.findTeamsForUser(userId);
+      if (userTeams && Array.isArray(userTeams)) {
+        userTeams.forEach(team => {
+          socket.join(team.id);
+          console.log(`Socket ${socket.id} auto-joined team room: ${team.id}`);
+        });
+      }
     } catch (err) {
-      console.error('Error updating status to online:', err);
+      console.error('Error in user_connected socket handler:', err);
     }
   });
 
@@ -903,14 +912,13 @@ io.on('connection', (socket) => {
         attachment: attachment || null
       });
       
-      const roomName = `${teamId}_${channelId}`;
-      io.to(roomName).emit('receive_message', newMsg);
+      io.to(teamId).emit('receive_message', newMsg);
 
       // --- AI ASSISTANT / SUMMARIZER LOOP ---
       const trimmedText = text.trim();
       if (trimmedText.startsWith('/summarize') || trimmedText.startsWith('/ai')) {
         // Emit typing indicator for AI Assistant
-        io.to(roomName).emit('ai_typing_state', { channelId, isTyping: true });
+        io.to(teamId).emit('ai_typing_state', { channelId, isTyping: true });
         
         setTimeout(async () => {
           let replyText = '';
@@ -1008,8 +1016,8 @@ io.on('connection', (socket) => {
             attachment: null
           });
           
-          io.to(roomName).emit('receive_message', aiMsg);
-          io.to(roomName).emit('ai_typing_state', { channelId, isTyping: false });
+          io.to(teamId).emit('receive_message', aiMsg);
+          io.to(teamId).emit('ai_typing_state', { channelId, isTyping: false });
         }, 1500);
       }
     } catch (err) {
