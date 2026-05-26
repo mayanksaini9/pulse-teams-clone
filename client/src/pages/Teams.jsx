@@ -287,6 +287,18 @@ const Teams = () => {
   const [showModal, setShowModal] = useState(false); // Create/Join Team modal
   const [modalTab, setModalTab] = useState('create'); // 'create' or 'join'
   
+  // States for Lightbox & About Modal
+  const [activeLightboxImg, setActiveLightboxImg] = useState(null);
+  const [activeLightboxTitle, setActiveLightboxTitle] = useState('');
+  const [activeLightboxColor, setActiveLightboxColor] = useState('#6366f1');
+  const [showAboutModal, setShowAboutModal] = useState(false);
+
+  const openLightbox = (url, name, color = '#6366f1') => {
+    setActiveLightboxImg(url || 'initials');
+    setActiveLightboxTitle(name);
+    setActiveLightboxColor(color);
+  };
+  
   // Custom states for small features
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [showChannelModal, setShowChannelModal] = useState(false);
@@ -1214,27 +1226,35 @@ const Teams = () => {
     setInputText(prev => prev + emoji);
   };
 
-  const renderAvatar = (u, size = '40px', borderRadius = '12px', fontSize = '14px') => {
+  const renderAvatar = (u, size = '40px', borderRadius = '12px', fontSize = '14px', clickToMagnify = true) => {
     const name = u?.name || 'U';
     const color = u?.avatarColor || '#6366f1';
     const status = u?.onlineStatus || 'online';
     const imgUrl = u?.avatarUrl;
 
     return (
-      <div className="avatar" style={{ 
-        width: size, 
-        height: size, 
-        fontSize: fontSize, 
-        borderRadius: borderRadius, 
-        backgroundColor: color,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontWeight: 'bold',
-        color: '#ffffff',
-        position: 'relative',
-        flexShrink: 0
-      }}>
+      <div 
+        className="avatar" 
+        onClick={clickToMagnify ? (e) => {
+          e.stopPropagation();
+          openLightbox(imgUrl, name, color);
+        } : undefined}
+        style={{ 
+          width: size, 
+          height: size, 
+          fontSize: fontSize, 
+          borderRadius: borderRadius, 
+          backgroundColor: color,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 'bold',
+          color: '#ffffff',
+          position: 'relative',
+          flexShrink: 0,
+          cursor: clickToMagnify ? 'pointer' : 'default'
+        }}
+      >
         {imgUrl ? (
           <img src={imgUrl} alt={name} style={{ width: '100%', height: '100%', borderRadius: borderRadius, objectFit: 'cover' }} />
         ) : (
@@ -1739,19 +1759,23 @@ const Teams = () => {
       {/* 1. Main Navigation Sidebar */}
       <aside className="main-sidebar">
         <div className="sidebar-brand" style={{ padding: '16px 0', display: 'flex', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-          <div className="brand-logo-container" title="Pulse Workspace" style={{
-            width: '42px',
-            height: '42px',
-            borderRadius: '10px',
-            background: 'rgba(255, 255, 255, 0.03)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1) rotate(5deg)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1) rotate(0deg)'}
+          <div 
+            className="brand-logo-container" 
+            title="About Pulse Workspace" 
+            onClick={() => setShowAboutModal(true)}
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '10px',
+              background: 'rgba(255, 255, 255, 0.03)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1) rotate(5deg)'}
+            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1) rotate(0deg)'}
           >
             <svg viewBox="0 0 100 100" style={{ width: '32px', height: '32px' }}>
               <defs>
@@ -1848,7 +1872,7 @@ const Teams = () => {
               className="profile-trigger" 
               onClick={() => setShowProfileDropdown(!showProfileDropdown)}
             >
-              {renderAvatar(user, '40px', '12px', '15px')}
+              {renderAvatar(user, '40px', '12px', '15px', false)}
             </button>
 
             {showProfileDropdown && (
@@ -1880,18 +1904,40 @@ const Teams = () => {
           <>
             <div className="sub-sidebar-header">
               <div className="team-select" style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', overflow: 'hidden' }}>
-                {currentTeam.avatarUrl ? (
-                  <img 
-                    src={currentTeam.avatarUrl} 
-                    alt={currentTeam.name} 
-                    className="team-avatar"
-                    style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} 
-                  />
-                ) : (
-                  <span className="team-avatar" style={{ backgroundColor: currentTeam.avatarColor || '#6366f1', flexShrink: 0 }}>
-                    {currentTeam.name.substring(0, 2).toUpperCase()}
-                  </span>
-                )}
+                <div 
+                  className="team-avatar-clickable"
+                  onClick={() => openLightbox(currentTeam.avatarUrl, currentTeam.name, currentTeam.avatarColor || '#6366f1')}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  title="View Team Profile Photo"
+                >
+                  {currentTeam.avatarUrl ? (
+                    <img 
+                      src={currentTeam.avatarUrl} 
+                      alt={currentTeam.name} 
+                      className="team-avatar"
+                      style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} 
+                    />
+                  ) : (
+                    <span 
+                      className="team-avatar" 
+                      style={{ 
+                        backgroundColor: currentTeam.avatarColor || '#6366f1', 
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '8px',
+                        fontWeight: 'bold',
+                        color: 'white',
+                        fontSize: '13px'
+                      }}
+                    >
+                      {currentTeam.name.substring(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </div>
                 <div className="team-info" style={{ overflow: 'hidden', flexGrow: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                     <h2 style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', margin: 0, fontSize: '15px' }}>{currentTeam.name}</h2>
@@ -2265,7 +2311,19 @@ const Teams = () => {
                           }}
                         >
                           {!msg.isSystem && (
-                            <div className="message-avatar" style={{ backgroundColor: msg.senderAvatarColor || '#6366f1', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px' }}>
+                            <div 
+                              className="message-avatar" 
+                              onClick={() => openLightbox(msg.senderAvatarUrl, msg.senderName, msg.senderAvatarColor || '#6366f1')}
+                              style={{ 
+                                backgroundColor: msg.senderAvatarColor || '#6366f1', 
+                                overflow: 'hidden', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                borderRadius: '12px',
+                                cursor: 'pointer'
+                              }}
+                            >
                               {msg.senderAvatarUrl ? (
                                 <img src={msg.senderAvatarUrl} alt={msg.senderName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               ) : (
@@ -3963,6 +4021,181 @@ const Teams = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Overlay */}
+      {activeLightboxImg && (
+        <div 
+          className="lightbox-overlay" 
+          onClick={() => setActiveLightboxImg(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(5, 5, 8, 0.9)',
+            zIndex: 99999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            animation: 'fadeIn 0.25s ease'
+          }}
+        >
+          <div style={{ position: 'relative', maxWidth: '90%', maxHeight: '80%', display: 'flex', flexDirection: 'column', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+            {activeLightboxImg === 'initials' ? (
+              <div style={{
+                width: '160px',
+                height: '160px',
+                borderRadius: '40px',
+                backgroundColor: activeLightboxColor,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '64px',
+                fontWeight: 'bold',
+                color: '#ffffff',
+                boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+                border: '2px solid rgba(255, 255, 255, 0.1)',
+                animation: 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+              }}>
+                {(activeLightboxTitle || 'U').charAt(0).toUpperCase()}
+              </div>
+            ) : (
+              <img 
+                src={activeLightboxImg} 
+                alt={activeLightboxTitle || "Profile Picture"} 
+                style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '100%', 
+                  borderRadius: '16px', 
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+                  border: '2px solid rgba(255, 255, 255, 0.1)',
+                  objectFit: 'contain',
+                  animation: 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+                }} 
+              />
+            )}
+            {activeLightboxTitle && (
+              <div style={{
+                marginTop: '16px',
+                textAlign: 'center',
+                color: '#fff',
+                fontSize: '18px',
+                fontWeight: 600,
+                fontFamily: 'Outfit, sans-serif'
+              }}>
+                {activeLightboxTitle}
+              </div>
+            )}
+          </div>
+          <div style={{
+            position: 'absolute',
+            bottom: '40px',
+            color: 'rgba(255, 255, 255, 0.5)',
+            fontSize: '14px'
+          }}>
+            Tap anywhere to close
+          </div>
+        </div>
+      )}
+
+      {/* About App Modal */}
+      {showAboutModal && (
+        <div className="modal-backdrop" onClick={() => setShowAboutModal(false)}>
+          <div 
+            className="modal-content-card glass-panel animate-fade" 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              maxWidth: '480px', 
+              padding: '32px', 
+              textAlign: 'center', 
+              position: 'relative',
+              borderRadius: '20px',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <button className="modal-close-btn" onClick={() => setShowAboutModal(false)} style={{ top: '16px', right: '16px' }}>
+              <X size={18} />
+            </button>
+
+            {/* Glowing Brand Icon */}
+            <div style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px auto',
+              boxShadow: '0 0 30px rgba(139, 92, 246, 0.4)'
+            }}>
+              <svg viewBox="0 0 100 100" style={{ width: '40px', height: '40px' }}>
+                <linearGradient id="aboutPulseGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.4" />
+                  <stop offset="50%" stopColor="#ffffff" stopOpacity="1" />
+                  <stop offset="100%" stopColor="#f472b6" stopOpacity="0.4" />
+                </linearGradient>
+                <rect x="26" y="20" width="12" height="60" rx="6" fill="#ffffff" />
+                <path d="M38,20 H58 C72,20 80,28 80,41 C80,54 72,62 58,62 H38 Z" fill="rgba(255,255,255,0.15)" />
+                <path d="M38,32 H54 C61,32 66,35 66,41 C66,47 61,50 54,50 H38 Z" fill="#0f111a" />
+                <path d="M48,50 L54,43 L60,53 L66,35 L72,48 L80,44" fill="none" stroke="url(#aboutPulseGrad)" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+
+            <h2 style={{ fontSize: '24px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em', background: 'linear-gradient(to right, #ffffff, #cbd5e1)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+              Pulse Collaboration Engine
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 24px 0', lineHeight: 1.5 }}>
+              A premium, secure team messaging and WebRTC video meeting container built for high-performance communication.
+            </p>
+
+            <div style={{ textAlign: 'left', marginBottom: '24px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Created By:</span>
+                <span style={{ color: '#fff', fontSize: '13px', fontWeight: 600 }}>Mayank Saini</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Role:</span>
+                <span style={{ color: 'var(--accent-primary)', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Lead Developer</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>GitHub:</span>
+                <a href="https://github.com/mayanksaini9" target="_blank" rel="noreferrer" style={{ color: '#a5b4fc', fontSize: '13px', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  github.com/mayanksaini9 <ArrowUpRight size={12} />
+                </a>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Email Contact:</span>
+                <a href="mailto:mayanksaini9@gmail.com" style={{ color: '#a5b4fc', fontSize: '13px', textDecoration: 'none' }}>
+                  mayanksaini9@gmail.com
+                </a>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button 
+                onClick={() => setShowAboutModal(false)}
+                className="modal-action-btn primary"
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '10px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                Close Details
+              </button>
+            </div>
           </div>
         </div>
       )}
