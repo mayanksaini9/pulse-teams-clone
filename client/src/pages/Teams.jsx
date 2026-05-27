@@ -301,6 +301,13 @@ const Teams = () => {
   const [superEditorLock, setSuperEditorLock] = useState(null);
   const [superEditorParticipants, setSuperEditorParticipants] = useState([]);
 
+  // Meeting Schedule States
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduleDescription, setScheduleDescription] = useState('');
+  const [isScheduling, setIsScheduling] = useState(false);
+
   const openLightbox = (url, name, color = '#6366f1') => {
     setActiveLightboxImg(url || 'initials');
     setActiveLightboxTitle(name);
@@ -1371,6 +1378,82 @@ const Teams = () => {
       socket.off('super_editor_cells_state', handleCellsState);
     };
   }, [socket, currentTeam]);
+
+  // Auto-join call from URL parameter if directed
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paramTeamId = params.get('teamId');
+    const paramChannelId = params.get('channelId');
+    const autoJoin = params.get('autoJoinCall') === 'true';
+
+    if (autoJoin && paramTeamId && paramChannelId && socket && user) {
+      if (currentTeam?.id !== paramTeamId) {
+        const targetTeam = teams.find(t => t.id === paramTeamId);
+        if (targetTeam) {
+          setCurrentTeam(targetTeam);
+        }
+      } else if (currentChannel?.id !== paramChannelId) {
+        const targetChannel = currentTeam.channels.find(c => c.id === paramChannelId);
+        if (targetChannel) {
+          setCurrentChannel(targetChannel);
+        }
+      } else {
+        // Once both currentTeam and currentChannel match, trigger auto-joining call!
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+        
+        setCallType('video');
+        setInCall(true);
+        socket.emit('start_call', {
+          teamId: currentTeam.id,
+          channelId: currentChannel.id,
+          channelName: currentChannel.name,
+          userName: user.name,
+          userId: user.id,
+          callType: 'video'
+        });
+      }
+    }
+  }, [teams, currentTeam, currentChannel, socket, user]);
+
+  const handleScheduleMeeting = async (e) => {
+    e.preventDefault();
+    if (!scheduleDate || !scheduleTime) {
+      alert("Please select both a date and a time.");
+      return;
+    }
+    setIsScheduling(true);
+    try {
+      const res = await fetch(`/api/teams/${currentTeam.id}/schedule-meeting`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          channelId: currentChannel.id,
+          date: scheduleDate,
+          time: scheduleTime,
+          description: scheduleDescription
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || "Meeting scheduled successfully and email invites sent!");
+        setShowScheduleModal(false);
+        setScheduleDate('');
+        setScheduleTime('');
+        setScheduleDescription('');
+      } else {
+        alert(data.message || "Failed to schedule meeting.");
+      }
+    } catch (err) {
+      console.error("Error scheduling meeting:", err);
+      alert("Error contacting the server.");
+    } finally {
+      setIsScheduling(false);
+    }
+  };
 
   const handleOpenSuperEditor = () => {
     if (!socket || !currentTeam || !currentChannel) return;
@@ -2536,6 +2619,18 @@ const Teams = () => {
                     </button>
                   </>
                 )}
+                <button 
+                  className="header-btn" 
+                  title="Schedule Future Meeting" 
+                  onClick={() => setShowScheduleModal(true)}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    color: 'var(--text-secondary)'
+                  }}
+                >
+                  <Calendar size={18} />
+                </button>
               </div>
             </header>
 
@@ -4864,6 +4959,148 @@ const Teams = () => {
           </div>
           <div style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)' }}>
             Collaborating live with {superEditorParticipants.length} user{superEditorParticipants.length !== 1 ? 's' : ''} in notebook. Minimize lets you chat and talk on calls while keeping editor session active.
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Meeting Modal */}
+      {showScheduleModal && (
+        <div className="modal-overlay animate-fade">
+          <div className="modal-content animate-scale" style={{ maxWidth: '480px', width: '100%' }}>
+            <button 
+              className="modal-close-btn" 
+              onClick={() => setShowScheduleModal(false)}
+            >
+              <X size={18} />
+            </button>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 0 15px rgba(16, 185, 129, 0.3)'
+              }}>
+                <Calendar size={20} color="white" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'white' }}>Schedule Channel Meeting</h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  For channel: #{currentChannel?.name}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleScheduleMeeting} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 600 }}>
+                  Date
+                </label>
+                <input 
+                  type="date" 
+                  value={scheduleDate}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    color: 'white',
+                    outline: 'none',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 600 }}>
+                  Time
+                </label>
+                <input 
+                  type="time" 
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    color: 'white',
+                    outline: 'none',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 600 }}>
+                  Meeting Goal / Description
+                </label>
+                <textarea 
+                  value={scheduleDescription}
+                  onChange={(e) => setScheduleDescription(e.target.value)}
+                  placeholder="Explain the purpose of today's call..."
+                  rows={4}
+                  style={{
+                    width: '100%',
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    color: 'white',
+                    outline: 'none',
+                    fontSize: '14px',
+                    resize: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowScheduleModal(false)}
+                  className="modal-action-btn"
+                  style={{
+                    flex: 1,
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isScheduling}
+                  className="modal-action-btn primary"
+                  style={{
+                    flex: 1,
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    boxShadow: '0 4px 15px rgba(16, 185, 129, 0.2)'
+                  }}
+                >
+                  {isScheduling ? 'Sending Invites...' : 'Schedule & Email'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

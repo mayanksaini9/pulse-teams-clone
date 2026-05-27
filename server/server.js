@@ -567,6 +567,63 @@ app.post('/api/teams/:teamId/demote', authenticateToken, async (req, res) => {
   }
 });
 
+// Schedule Meeting and Notify Members via email
+app.post('/api/teams/:teamId/schedule-meeting', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { channelId, date, time, description } = req.body;
+    const callerId = req.user.id;
+
+    const team = await database.findTeamById(teamId);
+    if (!team) return res.status(404).json({ message: 'Team not found.' });
+
+    const channel = team.channels.find(c => c.id === channelId);
+    const channelName = channel ? channel.name : 'General';
+
+    const callerUser = await database.findUserById(callerId);
+    const senderName = callerUser ? callerUser.name : 'A Team Member';
+
+    // Retrieve emails of all team members
+    const memberIds = team.members || [];
+    const membersList = [];
+    for (const memberId of memberIds) {
+      const u = await database.findUserById(memberId);
+      if (u && u.email) {
+        membersList.push(u);
+      }
+    }
+
+    // Build the join link
+    const host = req.headers.origin || 'https://pulse-teams.onrender.com';
+    const joinLink = `${host}/?teamId=${teamId}&channelId=${channelId}&autoJoinCall=true`;
+
+    // Send emails in the background using helper
+    const { sendMeetingInvitationEmail } = require('./email');
+    for (const member of membersList) {
+      sendMeetingInvitationEmail(member.email, {
+        senderName,
+        teamName: team.name,
+        channelName,
+        date,
+        time,
+        description,
+        joinLink
+      }).catch(err => {
+        console.error(`Failed to send meeting mail to ${member.email}:`, err);
+      });
+    }
+
+    // Send a system message to the chat channel alerting everyone of the scheduled meeting
+    const displayMsg = `📅 ${senderName} scheduled a meeting for ${date} at ${time}.\nGoal/Description: ${description || 'No description provided.'}\nMeeting Link: ${joinLink}`;
+    await sendSystemMessage(teamId, channelId, displayMsg);
+
+    res.status(200).json({ message: 'Meeting scheduled successfully and emails sent to all team members.' });
+  } catch (error) {
+    console.error('Error scheduling meeting:', error);
+    res.status(500).json({ message: 'Server error scheduling meeting.' });
+  }
+});
+
 // Kick Member from Team
 app.post('/api/teams/:teamId/kick', authenticateToken, async (req, res) => {
   try {

@@ -101,4 +101,76 @@ const sendVerificationEmail = async (toEmail, code) => {
   }
 };
 
-module.exports = { sendVerificationEmail };
+const sendMeetingInvitationEmail = async (toEmail, { senderName, teamName, channelName, date, time, description, joinLink }) => {
+  if (!transporter) {
+    console.log(`\n======================================================`);
+    console.log(`[SMTP CONFIGURATION MISSING]`);
+    console.log(`To send meeting invitations to ${toEmail}, set environment variables.`);
+    console.log(`Meeting Details: date=${date}, time=${time}, link=${joinLink}`);
+    console.log(`======================================================\n`);
+    return false;
+  }
+
+  const senderEmail = process.env.SENDER_EMAIL || (SMTP_USER.includes('@smtp-brevo.com') ? 'sainimayank100@gmail.com' : SMTP_USER);
+  const mailOptions = {
+    from: `"Pulse Workspace" <${senderEmail}>`,
+    to: toEmail,
+    subject: `📅 Scheduled Meeting: ${channelName} in ${teamName}`,
+    html: `
+      <div style="background-color: #0f111a; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #ffffff;">
+        <div style="max-width: 600px; margin: 0 auto; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 32px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);">
+          
+          <div style="text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 24px; font-weight: 800; letter-spacing: 2px; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; color: #6366f1;">PULSE</span>
+          </div>
+          
+          <h2 style="font-size: 22px; font-weight: 700; margin-bottom: 12px; color: #ffffff; text-align: center;">📅 New Meeting Scheduled</h2>
+          <p style="font-size: 14px; color: #94a3b8; line-height: 1.6; margin-bottom: 24px; text-align: center;">
+            <strong>${senderName}</strong> has scheduled a team meeting for channel <strong>${channelName}</strong> inside team <strong>${teamName}</strong>.
+          </p>
+          
+          <!-- Details Card -->
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <div style="margin-bottom: 12px;">
+              <span style="font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: bold; display: block;">Date & Time</span>
+              <span style="font-size: 16px; color: #ffffff; font-weight: 600;">${date} at ${time}</span>
+            </div>
+            
+            <div style="margin-bottom: 12px;">
+              <span style="font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: bold; display: block;">Goal / Description</span>
+              <span style="font-size: 14px; color: #cbd5e1; line-height: 1.5;">${description || 'No description provided.'}</span>
+            </div>
+          </div>
+          
+          <!-- Join Link Button -->
+          <div style="text-align: center; margin-bottom: 32px;">
+            <a href="${joinLink}" target="_blank" style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 10px; font-weight: bold; font-size: 15px; display: inline-block; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);">
+              Join Meeting Instantly
+            </a>
+          </div>
+          
+          <p style="font-size: 12px; color: #64748b; text-align: center; line-height: 1.5;">
+            Clicking the button will open Pulse and automatically direct you to join the call in ${channelName}.
+          </p>
+          
+          <hr style="border: 0; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 32px 0 16px 0;" />
+          
+          <p style="font-size: 11px; color: #475569; text-align: center;">
+            Pulse, Next-Generation Team Collaboration Workspace.
+          </p>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`Meeting email sent to ${toEmail} successfully: ${info.messageId}`);
+    return true;
+  } catch (error) {
+    console.error(`Error sending meeting email to ${toEmail}:`, error);
+    return false;
+  }
+};
+
+module.exports = { sendVerificationEmail, sendMeetingInvitationEmail };
